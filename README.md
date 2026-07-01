@@ -9,21 +9,16 @@ The current codebase includes:
 - environment-based configuration loading
 - local infrastructure with `Docker Compose`
 - API bootstrap with dependency connectivity checks
-- worker bootstrap with dependency connectivity checks
+- worker bootstrap with dependency connectivity checks and BullMQ consumption
 - a `GET /health` endpoint
-- smoke tests for the API bootstrap
+- notification creation and status lookup APIs
+- PostgreSQL persistence with Drizzle migrations
+- BullMQ job enqueueing and worker processing
+- fake email and SMS providers
+- retries, attempt tracking, templates, and channel preference checks
+- smoke, unit, integration, and optional end-to-end tests
 
 The target system design, scope, and implementation roadmap live in `DESIGN.md`.
-
-## Purpose
-
-This project is intended to be used as a technical challenge and discussion artifact. A reviewer should be able to:
-
-- install dependencies
-- start local infrastructure
-- run the API and worker processes
-- validate that the project boots correctly
-- review the design decisions in `DESIGN.md`
 
 ## Tech Stack
 
@@ -150,7 +145,7 @@ In a separate terminal:
 npm run worker
 ```
 
-The worker currently performs infrastructure bootstrap and validates connectivity to PostgreSQL and Redis.
+The worker consumes BullMQ jobs, loads notifications from PostgreSQL, checks user preferences, resolves templates, sends through fake providers, and updates delivery status.
 
 ## Verify the Setup
 
@@ -170,6 +165,27 @@ Expected response:
 }
 ```
 
+Create a notification:
+
+```bash
+curl -X POST http://localhost:3000/notifications \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "channel": "email",
+    "recipient": "user@example.com",
+    "subject": "Welcome",
+    "body": "Hello from the notification system",
+    "idempotencyKey": "readme-example-001"
+  }'
+```
+
+Retrieve a notification:
+
+```bash
+curl http://localhost:3000/notifications/<notification-id>
+```
+
 ## Available Scripts
 
 - `npm run dev`: start the API in watch mode
@@ -180,6 +196,7 @@ Expected response:
 - `npm run db:generate`: generate Drizzle migration files
 - `npm run db:migrate`: apply Drizzle migrations to PostgreSQL
 - `npm run test`: run the test suite
+- `npm run test:e2e`: run end-to-end tests against local PostgreSQL and Redis
 - `npm run test:watch`: run tests in watch mode
 - `npm run typecheck`: run TypeScript type checking
 
@@ -225,20 +242,29 @@ Implemented:
 - local infrastructure definition
 - environment validation and configuration loading
 - PostgreSQL bootstrap client
+- Drizzle schema and migrations
 - Redis and BullMQ bootstrap setup
 - API process startup with dependency checks
-- worker process startup with dependency checks
+- worker process startup with queue consumption
 - health endpoint
-- smoke test coverage for API startup
+- `POST /notifications`
+- `GET /notifications/:id`
+- idempotency handling
+- queue publishing and processing
+- fake providers for `email` and `sms`
+- retry handling with attempt persistence
+- template rendering
+- preference-aware delivery decisions
+- smoke, unit, integration, and optional end-to-end coverage
 
 Not implemented yet:
 
-- database schema and migrations
-- notification persistence model
-- `POST /notifications`
-- `GET /notifications/:id`
-- queue job production and consumption flow
-- delivery providers and retry logic
+- real external providers
+- preference management endpoints
+- manual retry endpoint
+- advanced observability metrics
+- distributed tracing
+- provider failover and dead-letter workflows
 
 For the full target scope, read `DESIGN.md`.
 
@@ -255,7 +281,8 @@ If you are reviewing this project as part of a hiring process, this is a practic
 7. Verify `GET /health`.
 8. Optionally exercise `POST /notifications`.
 9. Run `npm run test` and `npm run typecheck`.
-10. Read `DESIGN.md` for the architecture and implementation plan.
+10. Optionally run `npm run test:e2e` with local PostgreSQL and Redis available.
+11. Read `DESIGN.md` for the architecture and implementation plan.
 
 ## Troubleshooting
 
@@ -277,6 +304,20 @@ Run:
 
 ```bash
 npm run db:migrate
+```
+
+### Worker does not process queued jobs
+
+Make sure the worker is running in a separate terminal:
+
+```bash
+npm run worker
+```
+
+If you want to verify the full asynchronous lifecycle, also run:
+
+```bash
+npm run test:e2e
 ```
 
 ### Docker permission errors
@@ -331,3 +372,22 @@ test/
 ## Design Document
 
 The architecture specification and challenge requirements are documented in `DESIGN.md`.
+
+## Trade-Offs And Future Improvements
+
+This repository intentionally stays within the boundaries of a challenge-sized modular monolith.
+
+Current trade-offs:
+
+- fake providers are used instead of real integrations to keep delivery behavior deterministic
+- template rendering is intentionally simple and string-based
+- retries rely on BullMQ scheduling while PostgreSQL remains the source of truth
+- preference handling is enforced in the worker, not at request time
+
+Likely next improvements:
+
+- add real provider integrations and provider-specific error mapping
+- add preference management endpoints
+- add a manual retry endpoint for failed notifications
+- add counters and health/readiness checks beyond `/health`
+- add broader end-to-end coverage around retries and preference opt-outs

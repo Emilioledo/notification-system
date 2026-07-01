@@ -1,10 +1,17 @@
 import { buildServer } from "./build-server.js";
 import { env } from "../config/env.js";
+import { createDbClient } from "../db/client.js";
+import { createQueue } from "../modules/queue/queue.js";
 
 async function start() {
   const server = buildServer();
+  const { client } = createDbClient();
+  const { queue, connection } = createQueue();
 
   try {
+    await client.connect();
+    await connection.ping();
+
     await server.listen({
       host: "0.0.0.0",
       port: env.PORT,
@@ -12,6 +19,10 @@ async function start() {
   } catch (error) {
     server.log.error({ error }, "Failed to start API server");
     process.exitCode = 1;
+  } finally {
+    if (process.exitCode !== undefined && process.exitCode !== 0) {
+      await Promise.allSettled([queue.close(), connection.quit(), client.end()]);
+    }
   }
 }
 

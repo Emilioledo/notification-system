@@ -1,35 +1,34 @@
 # Notification System
 
-## Overview
+Scalable notification system prototype for a backend engineering challenge.
 
-This project is a functional prototype of a scalable notification system inspired by the notification system problem from _System Design Interview - An Insider's Guide (Vol. 1)_.
+This repository contains the foundation of a modular notification platform built with `TypeScript`, `Fastify`, `PostgreSQL`, `Redis`, and `BullMQ`.
 
-The goal is to build an implementation-focused backend system that is:
+The current codebase includes:
 
-- scalable enough for interview discussion
-- simple enough to avoid overengineering
-- easy to test
-- explicit about trade-offs
+- environment-based configuration loading
+- local infrastructure with `Docker Compose`
+- API bootstrap with dependency connectivity checks
+- worker bootstrap with dependency connectivity checks
+- a `GET /health` endpoint
+- smoke tests for the API bootstrap
 
-The system will support asynchronous notification delivery for multiple channels, starting with `email` and `sms`.
+The target system design, scope, and implementation roadmap live in `DESIGN.md`.
 
-## Goals
+## Purpose
 
-The system should:
+This project is intended to be used as a technical challenge and discussion artifact. A reviewer should be able to:
 
-- accept notification requests through an HTTP API
-- persist notifications in PostgreSQL as the source of truth
-- enqueue delivery jobs asynchronously with BullMQ
-- process notifications with stateless workers
-- respect basic user channel preferences
-- support retries for transient failures
-- provide idempotency to avoid duplicate notification creation
-- expose delivery status for tracking
+- install dependencies
+- start local infrastructure
+- run the API and worker processes
+- validate that the project boots correctly
+- review the design decisions in `DESIGN.md`
 
-## Recommended Stack
+## Tech Stack
 
-- `TypeScript`
 - `Node.js`
+- `TypeScript`
 - `Fastify`
 - `PostgreSQL`
 - `Redis`
@@ -38,460 +37,273 @@ The system should:
 - `Vitest`
 - `Docker Compose`
 
-## Why This Architecture
+## Prerequisites
 
-The recommended architecture is a modular monolith with asynchronous processing.
+Before running the project, make sure the following tools are available:
 
-This is the best fit for the challenge because it:
+- `Node.js` `>= 24`
+- `npm`
+- `Docker`
+- `Docker Compose`
 
-- demonstrates strong backend design without introducing unnecessary infrastructure
-- keeps the HTTP API decoupled from actual delivery work
-- allows horizontal scaling of workers
-- keeps the system easy to reason about and test
-- provides realistic trade-offs for retries, idempotency, and observability
+You can verify the main requirements with:
 
-This project should not start as a microservices system. That would add operational and design complexity without improving the evaluation outcome.
-
-## High-Level Architecture
-
-The system has two logical runtime components:
-
-1. `API`
-2. `Worker`
-
-Main components:
-
-1. HTTP API
-   - receives notification requests
-   - validates input
-   - applies idempotency rules
-   - persists notification data
-   - enqueues delivery jobs
-
-2. PostgreSQL
-   - source of truth
-   - stores notifications, attempts, preferences, and templates
-
-3. Redis + BullMQ
-   - asynchronous job queue
-   - delayed retries
-   - worker concurrency control
-
-4. Worker
-   - fetches jobs from the queue
-   - loads notification data
-   - checks user preferences
-   - resolves templates
-   - calls the appropriate provider
-   - updates final state or schedules retries
-
-5. Channel Providers
-   - `EmailProvider`
-   - `SmsProvider`
-   - fake/mock provider implementations for the challenge prototype
-
-## Delivery Model
-
-The system should use:
-
-- `at-least-once delivery`
-- `idempotency`
-- `retry with exponential backoff`
-
-The project should not attempt true `exactly-once` delivery. For this challenge, `at-least-once` plus idempotency is a more realistic and defendable choice.
-
-## Scope
-
-### In Scope
-
-- `email` and `sms` channels
-- asynchronous delivery
-- persistent notification state
-- user preferences per channel
-- simple templates
-- retries for transient failures
-- idempotency key support
-- notification status lookup
-- structured logging
-- unit and integration tests
-
-### Out of Scope
-
-- push notifications
-- quiet hours
-- digest or batch notifications
-- multi-region deployment
-- provider failover across channels
-- advanced dead-letter queue workflows
-- distributed tracing
-- sharding
-- complex marketing segmentation
-
-## Suggested API
-
-### `POST /notifications`
-
-Creates a notification request.
-
-Example request fields:
-
-- `userId`
-- `channel`
-- `recipient`
-- `subject` optional
-- `body` optional
-- `templateId` optional
-- `templateData` optional
-- `idempotencyKey`
-
-Validation rule:
-
-- at least one of `body` or `templateId` must be provided
-
-### `GET /notifications/:id`
-
-Returns current notification status and delivery information.
-
-Optional future endpoints:
-
-- `POST /users/:userId/preferences`
-- `GET /users/:userId/preferences`
-- `POST /notifications/:id/retry`
-
-## Core Flow
-
-1. A client sends `POST /notifications`
-2. The API validates the payload
-3. The API checks idempotency
-4. The API stores the notification with status `PENDING`
-5. The API enqueues a BullMQ job
-6. A worker consumes the job
-7. The worker loads the notification
-8. The worker checks user preferences
-9. The worker resolves the template or uses the direct body
-10. The worker selects the proper provider
-11. The worker attempts delivery
-12. The worker records the attempt
-13. The worker updates status to `SENT`, `RETRY_SCHEDULED`, or `FAILED`
-
-## Data Model
-
-### `notifications`
-
-- `id`
-- `user_id`
-- `channel`
-- `status`
-- `recipient`
-- `subject`
-- `body`
-- `template_id` nullable
-- `template_data` jsonb
-- `idempotency_key`
-- `external_ref` nullable
-- `scheduled_at` nullable
-- `last_error` nullable
-- `created_at`
-- `updated_at`
-
-### `notification_attempts`
-
-- `id`
-- `notification_id`
-- `attempt_number`
-- `provider`
-- `status`
-- `error_code` nullable
-- `error_message` nullable
-- `created_at`
-
-### `user_preferences`
-
-- `user_id`
-- `channel`
-- `enabled`
-- `created_at`
-- `updated_at`
-
-### `templates`
-
-- `id`
-- `name`
-- `channel`
-- `subject_template` nullable
-- `body_template`
-- `version`
-- `created_at`
-
-## Notification States
-
-- `PENDING`
-- `PROCESSING`
-- `SENT`
-- `RETRY_SCHEDULED`
-- `FAILED`
-- `CANCELLED` optional
-
-## Error Handling and Retries
-
-Errors should be classified into two broad categories:
-
-1. transient errors
-   - network timeout
-   - temporary provider outage
-   - connection failure
-   - should be retried
-
-2. permanent errors
-   - invalid recipient
-   - missing template
-   - user opted out
-   - should not be retried
-
-Retry policy recommendation:
-
-- maximum `3` to `5` attempts
-- exponential backoff
-- optional jitter if time allows
-
-## BullMQ Design
-
-Start with a single queue:
-
-- `notifications`
-
-Job payload:
-
-- `notificationId`
-- `attempt`
-
-Important design rule:
-
-- BullMQ manages delivery scheduling and retries, but PostgreSQL remains the system of record
-
-## Project Structure
-
-```text
-notification-system/
-  src/
-    app/
-      server.ts
-      worker.ts
-    config/
-      env.ts
-    modules/
-      notifications/
-        notification.controller.ts
-        notification.service.ts
-        notification.repository.ts
-        notification.schemas.ts
-        notification.types.ts
-      preferences/
-        preference.service.ts
-        preference.repository.ts
-      templates/
-        template.service.ts
-        template.repository.ts
-      delivery/
-        delivery.service.ts
-        delivery.repository.ts
-        retry.policy.ts
-      queue/
-        queue.ts
-        queue.jobs.ts
-        queue.worker.ts
-      providers/
-        provider.interface.ts
-        email.provider.ts
-        sms.provider.ts
-    db/
-      schema/
-      client.ts
-      migrations/
-    shared/
-      errors/
-      logger/
-      utils/
-  test/
-    unit/
-    integration/
-  docker-compose.yml
-  DESIGN.md
-  package.json
-  tsconfig.json
-  drizzle.config.ts
+```bash
+node --version
+npm --version
+docker --version
+docker compose version
 ```
 
-## Testing Strategy
+## Getting Started
 
-Testing is a core requirement of the challenge, so this project should place strong emphasis on correctness and reliability.
+### 1. Install dependencies
 
-### Unit Tests
+```bash
+npm install
+```
 
-- payload validation
-- retry policy
-- error classification
-- idempotency handling
-- template rendering
-- preference checks
+### 2. Create the local environment file
 
-### Integration Tests
+```bash
+cp .env.example .env
+```
 
-- create notification successfully
-- persist notification correctly
-- enqueue BullMQ job
-- process notification with worker
-- retry on transient error
-- fail immediately on permanent error
-- retrieve notification status
+The default values are already aligned with `docker-compose.yml`, so no changes are required for a standard local setup.
 
-### Optional End-to-End Test
+### 3. Start local infrastructure
 
-If time allows:
+```bash
+docker compose up -d
+```
 
-- run API, PostgreSQL, and Redis together in containers
-- verify the end-to-end notification lifecycle
+If you are using `Bazzite` with `Distrobox`, use:
 
-## Observability
+```bash
+./scripts/compose.sh up -d
+```
 
-Minimum recommended observability:
+This starts:
 
-- structured logs
-- include `notificationId` in all relevant logs
-- log delivery attempts and final outcomes
+- `PostgreSQL` on `localhost:5432`
+- `Redis` on `localhost:6379`
 
-Optional if time allows:
+To inspect container state:
 
-- counters for created, sent, failed, retried notifications
-- basic health endpoints
+```bash
+docker compose ps
+```
 
-## Trade-Offs
+On `Bazzite` + `Distrobox`:
 
-### Why Fastify
+```bash
+./scripts/compose.sh ps
+```
 
-- lightweight
-- good TypeScript support
-- simple and explicit
+To stop the services:
 
-### Why Drizzle
+```bash
+docker compose down
+```
 
-- lower magic than Prisma
-- explicit SQL-oriented modeling
-- easier to explain in an interview setting
+On `Bazzite` + `Distrobox`:
 
-### Why BullMQ + Redis
+```bash
+./scripts/compose.sh down
+```
 
-- natural fit for TypeScript projects
-- supports delayed retries and worker concurrency cleanly
-- avoids implementing a custom queue for the challenge
+To stop the services and remove persisted volumes:
 
-### Why Not Microservices
+```bash
+docker compose down -v
+```
 
-- too much operational complexity for the challenge
-- more moving parts without clear evaluation benefit
-- harder to keep implementation focused and well tested
+On `Bazzite` + `Distrobox`:
 
-## Scalability Story
+```bash
+./scripts/compose.sh down -v
+```
 
-This design is scalable without becoming overly complex because:
+### 4. Run the API
 
-- the API is decoupled from notification delivery
-- Redis absorbs traffic spikes through the queue
-- workers can scale horizontally
-- PostgreSQL preserves strong delivery state tracking
-- providers are abstracted behind interfaces, making new channels easier to add
+```bash
+npm run dev
+```
 
-This is enough to discuss future growth while keeping the prototype realistic.
+The API listens on `http://localhost:3000` by default.
 
-## Implementation Plan
+### 5. Run the worker
 
-### Phase 1: Project Bootstrap
+In a separate terminal:
 
-- initialize the TypeScript project
-- configure package manager, scripts, and TypeScript
-- add Fastify, Drizzle, BullMQ, Redis client, and Vitest
-- set up linting and formatting if desired
+```bash
+npm run worker
+```
 
-### Phase 2: Local Infrastructure
+The worker currently performs infrastructure bootstrap and validates connectivity to PostgreSQL and Redis.
 
-- add `docker-compose.yml`
-- configure PostgreSQL and Redis services
-- define environment variables
-- create configuration loader
+## Verify the Setup
 
-### Phase 3: Database Foundation
+Once the API is running, check the health endpoint:
 
-- define Drizzle schema
-- create migrations
-- add database client setup
+```bash
+curl http://localhost:3000/health
+```
 
-### Phase 4: Core Notification API
+Expected response:
 
-- implement `POST /notifications`
-- validate payloads
-- implement idempotency checks
-- persist notifications with `PENDING` status
+```json
+{
+  "status": "ok",
+  "service": "notification-system-api",
+  "environment": "development"
+}
+```
 
-### Phase 5: Queue Integration
+## Available Scripts
 
-- configure BullMQ
-- create the `notifications` queue
-- enqueue notification jobs after persistence
+- `npm run dev`: start the API in watch mode
+- `npm run worker`: start the worker in watch mode
+- `npm run build`: compile the project to `dist/`
+- `npm run start`: run the compiled API
+- `npm run start:worker`: run the compiled worker
+- `npm run test`: run the test suite
+- `npm run test:watch`: run tests in watch mode
+- `npm run typecheck`: run TypeScript type checking
 
-### Phase 6: Worker Processing
+## Configuration
 
-- implement worker bootstrap
-- load notifications from PostgreSQL
-- resolve message content
-- call the correct provider
-- update notification state
+Configuration is loaded from environment variables through `src/config/env.ts`.
 
-### Phase 7: Delivery Reliability
+### Core variables
 
-- implement retry classification
-- add exponential backoff
-- persist attempt history
-- handle permanent failures explicitly
+| Variable             | Default               | Description                                |
+| -------------------- | --------------------- | ------------------------------------------ |
+| `NODE_ENV`           | `development`         | Runtime environment                        |
+| `PORT`               | `3000`                | API port                                   |
+| `LOG_LEVEL`          | `info`                | Pino log level                             |
+| `POSTGRES_HOST`      | `127.0.0.1`           | PostgreSQL host                            |
+| `POSTGRES_PORT`      | `5432`                | PostgreSQL port                            |
+| `POSTGRES_DB`        | `notification_system` | PostgreSQL database name                   |
+| `POSTGRES_USER`      | `postgres`            | PostgreSQL username                        |
+| `POSTGRES_PASSWORD`  | `postgres`            | PostgreSQL password                        |
+| `DATABASE_URL`       | derived               | Optional full PostgreSQL connection string |
+| `REDIS_HOST`         | `127.0.0.1`           | Redis host                                 |
+| `REDIS_PORT`         | `6379`                | Redis port                                 |
+| `REDIS_PASSWORD`     | empty                 | Optional Redis password                    |
+| `REDIS_DB`           | `0`                   | Redis database index                       |
+| `QUEUE_NAME`         | `notifications`       | BullMQ queue name                          |
+| `WORKER_CONCURRENCY` | `5`                   | Planned worker concurrency                 |
+| `MAX_RETRY_ATTEMPTS` | `3`                   | Planned retry attempts                     |
+| `RETRY_BACKOFF_MS`   | `1000`                | Planned retry backoff base                 |
 
-### Phase 8: Read API and Preferences
+### Notes
 
-- implement `GET /notifications/:id`
-- implement user preference checks
-- optionally add preference endpoints
+- If `DATABASE_URL` is not provided, it is derived from the `POSTGRES_*` variables.
+- Empty optional values such as `DATABASE_URL=` and `REDIS_PASSWORD=` are accepted.
+- The API and worker both fail fast if PostgreSQL or Redis are unavailable.
 
-### Phase 9: Templates and Logging
+## What Is Implemented Today
 
-- add basic template support
-- add structured logging
-- include correlation fields like `notificationId`
+This repository is still in an early implementation phase.
 
-### Phase 10: Tests and Documentation
+Implemented:
 
-- add unit tests for core logic
-- add integration tests for API and worker flows
-- write `DESIGN.md`
-- document trade-offs and future improvements
+- project bootstrap
+- local infrastructure definition
+- environment validation and configuration loading
+- PostgreSQL bootstrap client
+- Redis and BullMQ bootstrap setup
+- API process startup with dependency checks
+- worker process startup with dependency checks
+- health endpoint
+- smoke test coverage for API startup
 
-## Key Risks
+Not implemented yet:
 
-- adding too many product features too early
-- overcomplicating template management
-- treating BullMQ as the source of truth instead of PostgreSQL
-- failing to distinguish transient and permanent errors cleanly
-- underinvesting in integration tests
+- database schema and migrations
+- notification persistence model
+- `POST /notifications`
+- `GET /notifications/:id`
+- queue job production and consumption flow
+- delivery providers and retry logic
 
-## Final Recommendation
+For the full target scope, read `DESIGN.md`.
 
-Use this combination:
+## Recommended Reviewer Flow
 
-- `Fastify`
-- `TypeScript`
-- `PostgreSQL`
-- `Redis + BullMQ`
-- `Drizzle ORM`
-- `Vitest`
-- `email` and `sms` channels
-- fake providers for delivery simulation
-- strong focus on idempotency, retries, states, and tests
+If you are reviewing this project as part of a hiring process, this is a practical order:
 
-This provides a scalable, interview-ready implementation without unnecessary overengineering.
+1. Read `README.md` for setup instructions.
+2. Start PostgreSQL and Redis with `docker compose up -d`.
+3. Run `npm install`.
+4. Start the API with `npm run dev`.
+5. Start the worker with `npm run worker`.
+6. Verify `GET /health`.
+7. Run `npm run test` and `npm run typecheck`.
+8. Read `DESIGN.md` for the architecture and implementation plan.
+
+## Troubleshooting
+
+### API fails with `ECONNREFUSED`
+
+This usually means PostgreSQL or Redis is not running locally.
+
+Check:
+
+```bash
+docker compose ps
+```
+
+### Docker permission errors
+
+If `docker compose up -d` fails with a socket permission error, your user likely does not have access to Docker on the machine. Resolve Docker access first, then retry.
+
+### Bazzite and Distrobox
+
+If you are running the project inside `Distrobox` on `Bazzite`, the Docker CLI may point to `/var/run/docker.sock`, while the working container runtime is actually the rootless Podman socket exposed by the host.
+
+This repository includes `./scripts/compose.sh`, which automatically uses:
+
+```bash
+unix:///run/user/$(id -u)/podman/podman.sock
+```
+
+when that socket is available.
+
+Use:
+
+```bash
+./scripts/compose.sh up -d
+./scripts/compose.sh ps
+./scripts/compose.sh down
+```
+
+You can also export the socket manually for the current shell:
+
+```bash
+export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+docker compose up -d
+```
+
+### Port conflicts
+
+If ports `3000`, `5432`, or `6379` are already in use, stop the conflicting service or change the port mapping and matching environment variables.
+
+## Repository Structure
+
+```text
+src/
+  app/        API and worker entrypoints
+  config/     environment parsing and validation
+  db/         database bootstrap
+  modules/    queue and future domain modules
+scripts/      local helper scripts
+  shared/     shared logger and utilities
+test/
+  smoke/      startup and health checks
+```
+
+## Design Document
+
+The architecture specification and challenge requirements are documented in `DESIGN.md`.

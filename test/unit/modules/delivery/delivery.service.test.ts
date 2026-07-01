@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DeliveryError } from "../../../../src/modules/delivery/delivery.errors.js";
 import { DeliveryService } from "../../../../src/modules/delivery/delivery.service.js";
 import type { NotificationRecord } from "../../../../src/modules/notifications/notification.types.js";
 
@@ -24,6 +25,8 @@ const baseNotification: NotificationRecord = {
 describe("DeliveryService", () => {
   const findById = vi.fn();
   const updateStatus = vi.fn();
+  const createAttempt = vi.fn();
+  const getNextAttemptNumber = vi.fn();
   const sendEmail = vi.fn();
   const sendSms = vi.fn();
 
@@ -34,6 +37,7 @@ describe("DeliveryService", () => {
   it("loads, processes, and marks a notification as sent", async () => {
     findById.mockResolvedValueOnce(baseNotification);
     updateStatus.mockResolvedValue(baseNotification);
+    getNextAttemptNumber.mockResolvedValueOnce(1);
     sendEmail.mockResolvedValueOnce({
       externalRef: "email:550e8400-e29b-41d4-a716-446655440010",
     });
@@ -46,8 +50,12 @@ describe("DeliveryService", () => {
         updateStatus,
       },
       {
-        email: { send: sendEmail },
-        sms: { send: sendSms },
+        createAttempt,
+        getNextAttemptNumber,
+      },
+      {
+        email: { name: "email", send: sendEmail },
+        sms: { name: "sms", send: sendSms },
       },
     );
 
@@ -65,6 +73,12 @@ describe("DeliveryService", () => {
       subject: "Welcome",
       body: "Hello from the notification system",
     });
+    expect(createAttempt).toHaveBeenCalledWith({
+      notificationId: baseNotification.id,
+      attemptNumber: 1,
+      provider: "email",
+      status: "SENT",
+    });
     expect(updateStatus).toHaveBeenNthCalledWith(
       2,
       baseNotification.id,
@@ -79,6 +93,7 @@ describe("DeliveryService", () => {
   it("marks the notification as failed when delivery raises an error", async () => {
     findById.mockResolvedValueOnce(baseNotification);
     updateStatus.mockResolvedValue(baseNotification);
+    getNextAttemptNumber.mockResolvedValueOnce(1);
     sendEmail.mockRejectedValueOnce(new Error("provider unavailable"));
 
     const service = new DeliveryService(
@@ -89,8 +104,12 @@ describe("DeliveryService", () => {
         updateStatus,
       },
       {
-        email: { send: sendEmail },
-        sms: { send: sendSms },
+        createAttempt,
+        getNextAttemptNumber,
+      },
+      {
+        email: { name: "email", send: sendEmail },
+        sms: { name: "sms", send: sendSms },
       },
     );
 
@@ -98,10 +117,18 @@ describe("DeliveryService", () => {
       "provider unavailable",
     );
 
+    expect(createAttempt).toHaveBeenCalledWith({
+      notificationId: baseNotification.id,
+      attemptNumber: 1,
+      provider: "email",
+      status: "FAILED",
+      errorCode: null,
+      errorMessage: "provider unavailable",
+    });
     expect(updateStatus).toHaveBeenNthCalledWith(
       2,
       baseNotification.id,
-      "FAILED",
+      "RETRY_SCHEDULED",
       {
         lastError: "provider unavailable",
       },
@@ -115,6 +142,7 @@ describe("DeliveryService", () => {
       templateId: "550e8400-e29b-41d4-a716-446655440001",
     });
     updateStatus.mockResolvedValue(baseNotification);
+    getNextAttemptNumber.mockResolvedValueOnce(1);
 
     const service = new DeliveryService(
       {
@@ -124,8 +152,12 @@ describe("DeliveryService", () => {
         updateStatus,
       },
       {
-        email: { send: sendEmail },
-        sms: { send: sendSms },
+        createAttempt,
+        getNextAttemptNumber,
+      },
+      {
+        email: { name: "email", send: sendEmail },
+        sms: { name: "sms", send: sendSms },
       },
     );
 
@@ -133,12 +165,60 @@ describe("DeliveryService", () => {
       "Template resolution is not implemented yet",
     );
     expect(sendEmail).not.toHaveBeenCalled();
+    expect(createAttempt).toHaveBeenCalledWith({
+      notificationId: baseNotification.id,
+      attemptNumber: 1,
+      provider: "email",
+      status: "FAILED",
+      errorCode: "MISSING_TEMPLATE_RESOLUTION",
+      errorMessage: "Template resolution is not implemented yet",
+    });
     expect(updateStatus).toHaveBeenNthCalledWith(
       2,
       baseNotification.id,
       "FAILED",
       {
         lastError: "Template resolution is not implemented yet",
+      },
+    );
+  });
+
+  it("marks missing content as a permanent delivery error", async () => {
+    findById.mockResolvedValueOnce({
+      ...baseNotification,
+      body: null,
+      templateId: null,
+    });
+    updateStatus.mockResolvedValue(baseNotification);
+    getNextAttemptNumber.mockResolvedValueOnce(2);
+
+    const service = new DeliveryService(
+      {
+        findById,
+        findByIdempotencyKey: vi.fn(),
+        create: vi.fn(),
+        updateStatus,
+      },
+      {
+        createAttempt,
+        getNextAttemptNumber,
+      },
+      {
+        email: { name: "email", send: sendEmail },
+        sms: { name: "sms", send: sendSms },
+      },
+    );
+
+    await expect(service.processNotification(baseNotification.id)).rejects.toThrow(
+      DeliveryError,
+    );
+
+    expect(updateStatus).toHaveBeenNthCalledWith(
+      2,
+      baseNotification.id,
+      "FAILED",
+      {
+        lastError: "Notification has no body or template configured",
       },
     );
   });

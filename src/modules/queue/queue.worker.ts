@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 
 import { env } from "../../config/env.js";
+import { isPermanentDeliveryError } from "../delivery/delivery.errors.js";
 import type { NotificationJobPayload } from "./queue.jobs.js";
 
 function getWorkerRedisOptions() {
@@ -19,7 +20,18 @@ export function createQueueWorker(
   return new Worker<NotificationJobPayload>(
     env.QUEUE_NAME,
     async (job) => {
-      await processor(job.data);
+      try {
+        await processor({
+          ...job.data,
+          attempt: job.attemptsStarted,
+        });
+      } catch (error) {
+        if (isPermanentDeliveryError(error)) {
+          await job.discard();
+        }
+
+        throw error;
+      }
     },
     {
       connection: getWorkerRedisOptions(),

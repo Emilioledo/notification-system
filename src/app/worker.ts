@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 
 import { env } from "../config/env.js";
 import { createDbClient } from "../db/client.js";
+import { DeliveryRepository } from "../modules/delivery/delivery.repository.js";
 import { DeliveryService } from "../modules/delivery/delivery.service.js";
 import { NotificationRepository } from "../modules/notifications/notification.repository.js";
 import { EmailProvider } from "../modules/providers/email.provider.js";
@@ -14,14 +15,24 @@ export async function startWorker() {
   const { client, db } = createDbClient();
   const { queue, connection } = createQueue();
   const notificationRepository = new NotificationRepository(db);
-  const deliveryService = new DeliveryService(notificationRepository, {
-    email: new EmailProvider(),
-    sms: new SmsProvider(),
-  });
+  const deliveryRepository = new DeliveryRepository(db);
+  const deliveryServiceWithAttempts = new DeliveryService(
+    notificationRepository,
+    deliveryRepository,
+    {
+      email: new EmailProvider(),
+      sms: new SmsProvider(),
+    },
+  );
 
   const worker = createQueueWorker(async (payload) => {
-    logger.info({ notificationId: payload.notificationId, attempt: payload.attempt }, "Processing notification job");
-    await deliveryService.processNotification(payload.notificationId);
+    logger.info(
+      { notificationId: payload.notificationId, attempt: payload.attempt },
+      "Processing notification job",
+    );
+    await deliveryServiceWithAttempts.processNotification(
+      payload.notificationId,
+    );
   });
 
   await client.connect();

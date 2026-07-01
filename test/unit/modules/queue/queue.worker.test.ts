@@ -26,15 +26,22 @@ vi.mock("../../../../src/config/env.js", () => ({
   },
 }));
 
+vi.mock("../../../../src/modules/delivery/delivery.errors.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../../src/modules/delivery/delivery.errors.js")
+  >("../../../../src/modules/delivery/delivery.errors.js");
+
+  return actual;
+});
+
 describe("createQueueWorker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("creates a BullMQ worker bound to the notifications queue", async () => {
-    const { createQueueWorker } = await import(
-      "../../../../src/modules/queue/queue.worker.js"
-    );
+    const { createQueueWorker } =
+      await import("../../../../src/modules/queue/queue.worker.js");
 
     const processor = vi.fn();
     createQueueWorker(processor);
@@ -54,5 +61,47 @@ describe("createQueueWorker", () => {
         concurrency: 7,
       },
     );
+  });
+
+  it("discards permanent delivery errors to avoid retries", async () => {
+    const { createQueueWorker } = await import(
+      "../../../../src/modules/queue/queue.worker.js"
+    );
+    const { DeliveryError } = await import(
+      "../../../../src/modules/delivery/delivery.errors.js"
+    );
+
+    const processor = vi.fn().mockRejectedValueOnce(
+      new DeliveryError("invalid recipient", "permanent", "INVALID_RECIPIENT"),
+    );
+
+    createQueueWorker(processor);
+
+    const processorWrapper = workerConstructorMock.mock.calls[0]?.[1] as (
+      job: {
+        data: { notificationId: string; attempt: number };
+        attemptsStarted: number;
+        discard: () => Promise<void>;
+      },
+    ) => Promise<void>;
+
+    const discard = vi.fn().mockResolvedValueOnce(undefined);
+
+    await expect(
+      processorWrapper({
+        data: {
+          notificationId: "550e8400-e29b-41d4-a716-446655440010",
+          attempt: 1,
+        },
+        attemptsStarted: 2,
+        discard,
+      }),
+    ).rejects.toThrow("invalid recipient");
+
+    expect(discard).toHaveBeenCalledOnce();
+    expect(processor).toHaveBeenCalledWith({
+      notificationId: "550e8400-e29b-41d4-a716-446655440010",
+      attempt: 2,
+    });
   });
 });

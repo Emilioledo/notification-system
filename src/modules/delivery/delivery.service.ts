@@ -1,3 +1,5 @@
+import type { DeliveryRepositoryPort } from "./delivery.repository.js";
+import { DeliveryError, isPermanentDeliveryError } from "./delivery.errors.js";
 import type { NotificationRepositoryPort } from "../notifications/notification.repository.js";
 import type { NotificationRecord } from "../notifications/notification.types.js";
 import type { ChannelProvider } from "../providers/provider.interface.js";
@@ -13,15 +15,24 @@ function resolveBody(notification: NotificationRecord) {
   }
 
   if (notification.templateId) {
-    throw new Error("Template resolution is not implemented yet");
+    throw new DeliveryError(
+      "Template resolution is not implemented yet",
+      "permanent",
+      "MISSING_TEMPLATE_RESOLUTION",
+    );
   }
 
-  throw new Error("Notification has no body or template configured");
+  throw new DeliveryError(
+    "Notification has no body or template configured",
+    "permanent",
+    "MISSING_CONTENT",
+  );
 }
 
 export class DeliveryService {
   constructor(
     private readonly notificationRepository: NotificationRepositoryPort,
+    private readonly deliveryRepository: DeliveryRepositoryPort,
     private readonly providerRegistry: ProviderRegistry,
   ) {}
 
@@ -41,14 +52,24 @@ export class DeliveryService {
       },
     );
 
+    const provider = this.providerRegistry[notification.channel];
+    const attemptNumber =
+      await this.deliveryRepository.getNextAttemptNumber(notification.id);
+
     try {
-      const provider = this.providerRegistry[notification.channel];
       const body = resolveBody(notification);
       const result = await provider.send({
         notificationId: notification.id,
         recipient: notification.recipient,
         subject: notification.subject,
         body,
+      });
+
+      await this.deliveryRepository.createAttempt({
+        notificationId: notification.id,
+        attemptNumber,
+        provider: provider.name,
+        status: "SENT",
       });
 
       await this.notificationRepository.updateStatus(notification.id, "SENT", {
@@ -59,9 +80,18 @@ export class DeliveryService {
       const lastError =
         error instanceof Error ? error.message : "Unknown delivery error";
 
+      await this.deliveryRepository.createAttempt({
+        notificationId: notification.id,
+        attemptNumber,
+        provider: provider.name,
+        status: "FAILED",
+        errorCode: error instanceof DeliveryError ? (error.code ?? null) : null,
+        errorMessage: lastError,
+      });
+
       await this.notificationRepository.updateStatus(
         notification.id,
-        "FAILED",
+        isPermanentDeliveryError(error) ? "FAILED" : "RETRY_SCHEDULED",
         {
           lastError,
         },

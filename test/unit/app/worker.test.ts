@@ -5,7 +5,9 @@ const endMock = vi.fn();
 const pingMock = vi.fn();
 const quitMock = vi.fn();
 const queueCloseMock = vi.fn();
+const workerCloseMock = vi.fn();
 const loggerInfoMock = vi.fn();
+const processNotificationMock = vi.fn();
 
 vi.mock("../../../src/config/env.js", () => ({
   env: {
@@ -21,6 +23,7 @@ vi.mock("../../../src/db/client.js", () => ({
       connect: connectMock,
       end: endMock,
     },
+    db: {},
   })),
 }));
 
@@ -34,6 +37,38 @@ vi.mock("../../../src/modules/queue/queue.js", () => ({
       close: queueCloseMock,
     },
   })),
+}));
+
+vi.mock("../../../src/modules/queue/queue.worker.js", () => ({
+  createQueueWorker: vi.fn(() => ({
+    close: workerCloseMock,
+  })),
+}));
+
+vi.mock("../../../src/modules/notifications/notification.repository.js", () => ({
+  NotificationRepository: vi.fn(function MockNotificationRepository() {}),
+}));
+
+vi.mock("../../../src/modules/delivery/delivery.repository.js", () => ({
+  DeliveryRepository: vi.fn(function MockDeliveryRepository() {}),
+}));
+
+vi.mock("../../../src/modules/delivery/delivery.service.js", () => ({
+  DeliveryService: vi.fn(function MockDeliveryService(this: { processNotification?: unknown }) {
+    this.processNotification = processNotificationMock;
+  }),
+}));
+
+vi.mock("../../../src/modules/providers/email.provider.js", () => ({
+  EmailProvider: vi.fn(function MockEmailProvider(this: { name?: string }) {
+    this.name = "email";
+  }),
+}));
+
+vi.mock("../../../src/modules/providers/sms.provider.js", () => ({
+  SmsProvider: vi.fn(function MockSmsProvider(this: { name?: string }) {
+    this.name = "sms";
+  }),
 }));
 
 vi.mock("../../../src/shared/logger.js", () => ({
@@ -71,6 +106,7 @@ describe("startWorker", () => {
   it("boots successfully and registers shutdown handlers", async () => {
     connectMock.mockResolvedValueOnce(undefined);
     pingMock.mockResolvedValueOnce("PONG");
+    workerCloseMock.mockResolvedValue(undefined);
 
     const { startWorker } = await import("../../../src/app/worker.js");
 
@@ -94,6 +130,7 @@ describe("startWorker", () => {
     connectMock.mockResolvedValueOnce(undefined);
     pingMock.mockResolvedValueOnce("PONG");
     queueCloseMock.mockResolvedValueOnce(undefined);
+    workerCloseMock.mockResolvedValueOnce(undefined);
     quitMock.mockResolvedValueOnce("OK");
     endMock.mockResolvedValueOnce(undefined);
 
@@ -110,6 +147,7 @@ describe("startWorker", () => {
       { signal: "SIGTERM" },
       "Worker shutdown requested",
     );
+    expect(workerCloseMock).toHaveBeenCalledOnce();
     expect(queueCloseMock).toHaveBeenCalledOnce();
     expect(quitMock).toHaveBeenCalledOnce();
     expect(endMock).toHaveBeenCalledOnce();

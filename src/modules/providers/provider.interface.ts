@@ -10,5 +10,6 @@ export type DeliveryResult = {
 };
 
 export type ChannelProvider = {
+  name: string;
   send(input: DeliveryRequest): Promise<DeliveryResult>;
 };

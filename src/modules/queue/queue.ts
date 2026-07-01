@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 
 import { env } from "../../config/env.js";
+import { getRetryAttempts, getRetryBackoffMs } from "../delivery/retry.policy.js";
 import type { NotificationJobPayload } from "./queue.jobs.js";
 
 function getRedisOptions() {
@@ -32,7 +33,13 @@ export class BullMqNotificationQueue implements NotificationQueuePort {
   constructor(private readonly queue: Queue<NotificationJobPayload>) {}
 
   async enqueueNotification(payload: NotificationJobPayload) {
-    await this.queue.add("notification.deliver", payload);
+    await this.queue.add("notification.deliver", payload, {
+      attempts: getRetryAttempts(),
+      backoff: {
+        type: "exponential",
+        delay: getRetryBackoffMs(),
+      },
+    });
   }
 }
 

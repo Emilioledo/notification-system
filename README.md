@@ -126,6 +126,16 @@ On `Bazzite` + `Distrobox`:
 
 ### 4. Run the API
 
+Apply the database migrations first:
+
+```bash
+npm run db:migrate
+```
+
+This creates the PostgreSQL schema required by the API endpoints. Without this step, requests such as `POST /notifications` will fail because the database tables do not exist yet.
+
+Then start the API:
+
 ```bash
 npm run dev
 ```
@@ -167,6 +177,8 @@ Expected response:
 - `npm run build`: compile the project to `dist/`
 - `npm run start`: run the compiled API
 - `npm run start:worker`: run the compiled worker
+- `npm run db:generate`: generate Drizzle migration files
+- `npm run db:migrate`: apply Drizzle migrations to PostgreSQL
 - `npm run test`: run the test suite
 - `npm run test:watch`: run tests in watch mode
 - `npm run typecheck`: run TypeScript type checking
@@ -237,11 +249,13 @@ If you are reviewing this project as part of a hiring process, this is a practic
 1. Read `README.md` for setup instructions.
 2. Start PostgreSQL and Redis with `docker compose up -d`.
 3. Run `npm install`.
-4. Start the API with `npm run dev`.
-5. Start the worker with `npm run worker`.
-6. Verify `GET /health`.
-7. Run `npm run test` and `npm run typecheck`.
-8. Read `DESIGN.md` for the architecture and implementation plan.
+4. Apply the database migrations with `npm run db:migrate`.
+5. Start the API with `npm run dev`.
+6. Start the worker with `npm run worker`.
+7. Verify `GET /health`.
+8. Optionally exercise `POST /notifications`.
+9. Run `npm run test` and `npm run typecheck`.
+10. Read `DESIGN.md` for the architecture and implementation plan.
 
 ## Troubleshooting
 
@@ -253,6 +267,16 @@ Check:
 
 ```bash
 docker compose ps
+```
+
+### API returns `500` on `POST /notifications`
+
+If the API is up but notification creation fails with a database query error, the schema was likely not applied yet.
+
+Run:
+
+```bash
+npm run db:migrate
 ```
 
 ### Docker permission errors

@@ -14,3 +14,5 @@ export function createDbClient() {
     client,
   };
 }
+
+export type DatabaseClient = ReturnType<typeof createDbClient>["db"];

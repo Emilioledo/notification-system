@@ -1,499 +1,528 @@
 # Notification System Design
 
-This document captures the target architecture, scope, trade-offs, and implementation plan for the notification system challenge. For local setup, installation, and run instructions, see `README.md`.
+This document explains how I approached the challenge, why I made the architectural decisions I made, what I intentionally left out, and how I organized the implementation from the first phase to the final prototype.
 
-## Overview
+For setup and runtime instructions, see `README.md`.
 
-This project is a functional prototype of a scalable notification system inspired by the notification system problem from _System Design Interview - An Insider's Guide (Vol. 1)_.
+## What I Wanted To Demonstrate
 
-The goal is to build an implementation-focused backend system that is:
+My goal with this repository was not to simulate a full production notification platform. My goal was to build a correct, testable, implementation-oriented system design that translates a high-level architecture into working code.
 
-- scalable enough for interview discussion
-- simple enough to avoid overengineering
-- easy to test
-- explicit about trade-offs
+I wanted the solution to focus on four qualities that matter most for this challenge:
 
-The system will support asynchronous notification delivery for multiple channels, starting with `email` and `sms`.
+- correct asynchronous processing
+- clean separation of responsibilities
+- explicit trade-offs instead of accidental complexity
+- a delivery plan that moved from core flow to reliability features in controlled phases
 
-## Goals
+## Why I Chose This Problem
 
-The system should:
+I chose the notification system problem because it is a good fit for discussing real backend design concerns without needing artificial complexity.
 
-- accept notification requests through an HTTP API
-- persist notifications in PostgreSQL as the source of truth
-- enqueue delivery jobs asynchronously with BullMQ
-- process notifications with stateless workers
-- respect basic user channel preferences
-- support retries for transient failures
-- provide idempotency to avoid duplicate notification creation
-- expose delivery status for tracking
+It naturally exercises:
 
-## Recommended Stack
+- asynchronous processing
+- persistence and status tracking
+- retries and error classification
+- idempotency
+- interface boundaries with external providers
+- scalable runtime decomposition
 
-- `TypeScript`
-- `Node.js`
-- `Fastify`
-- `PostgreSQL`
-- `Redis`
-- `BullMQ`
-- `Drizzle ORM`
-- `Vitest`
-- `Docker Compose`
+It is also a problem where overengineering is easy. That made it a good challenge for demonstrating restraint.
 
-## Why This Architecture
+## Why TypeScript Instead Of Go
 
-The recommended architecture is a modular monolith with asynchronous processing.
+If the only criterion were raw runtime efficiency or a concurrency-first systems language, `Go` would likely be the best choice for this kind of service.
 
-This is the best fit for the challenge because it:
+I still chose `TypeScript` and `Node.js` deliberately.
 
-- demonstrates strong backend design without introducing unnecessary infrastructure
-- keeps the HTTP API decoupled from actual delivery work
-- allows horizontal scaling of workers
-- keeps the system easy to reason about and test
-- provides realistic trade-offs for retries, idempotency, and observability
+### Why Go Would Be Strong
 
-This project should not start as a microservices system. That would add operational and design complexity without improving the evaluation outcome.
+- excellent concurrency primitives
+- low memory footprint for worker-style services
+- strong fit for networked backend infrastructure
+- very defensible choice for a production notification pipeline
 
-## High-Level Architecture
+### Why I Chose TypeScript Anyway
 
-The system has two logical runtime components:
+- faster implementation velocity for a challenge that emphasizes working, tested code
+- strong ecosystem fit for this exact shape of system: `Fastify`, `BullMQ`, `Drizzle`, `Vitest`
+- lower ceremony for iterating on API, queue, worker, and tests in parallel
+- easier to keep the whole prototype in a single language across HTTP, queueing, persistence, and tests
+- better leverage of the JavaScript queueing ecosystem, especially `BullMQ`, which is a natural fit for Redis-backed async work
+
+### The Real Trade-Off
+
+This is not a claim that TypeScript is the universally best language for notification systems.
+
+The claim is narrower and intentional: for this challenge, `TypeScript` provided the best balance of development speed, architectural clarity, library support, and testability while still allowing a serious discussion about system design.
+
+In other words, I optimized for a strong implementation and a strong explanation, not for theoretical maximum runtime performance.
+
+## How I Structured The System
+
+I implemented the system as a modular monolith split into two runtime processes:
 
 1. `API`
 2. `Worker`
 
-Main components:
+Both processes share the same codebase, data model, and configuration, but I kept their operational responsibilities clearly separated.
 
-1. HTTP API
-   - receives notification requests
-   - validates input
-   - applies idempotency rules
-   - persists notification data
-   - enqueues delivery jobs
+### API Responsibilities I Assigned
 
-2. PostgreSQL
-   - source of truth
-   - stores notifications, attempts, preferences, and templates
+- validate incoming notification requests
+- enforce idempotency
+- persist notifications in PostgreSQL
+- enqueue asynchronous delivery jobs in BullMQ
+- expose notification status lookup
 
-3. Redis + BullMQ
-   - asynchronous job queue
-   - delayed retries
-   - worker concurrency control
+### Worker Responsibilities I Assigned
 
-4. Worker
-   - fetches jobs from the queue
-   - loads notification data
-   - checks user preferences
-   - resolves templates
-   - calls the appropriate provider
-   - updates final state or schedules retries
+- consume queued jobs
+- load notification state from PostgreSQL
+- check user channel preferences
+- resolve templates when present
+- call the selected provider
+- persist attempts and final outcomes
+- rely on retry policy for transient failures
 
-5. Channel Providers
-   - `EmailProvider`
-   - `SmsProvider`
-   - fake/mock provider implementations for the challenge prototype
+### Infrastructure Responsibilities
 
-## Delivery Model
+- `PostgreSQL`: source of truth for notification state
+- `Redis + BullMQ`: queueing, retry scheduling, and worker coordination
 
-The system should use:
+This gave me the most important scaling property for the problem: request acceptance is decoupled from delivery execution.
 
-- `at-least-once delivery`
-- `idempotency`
-- `retry with exponential backoff`
+## Why I Chose This Architecture
 
-The project should not attempt true `exactly-once` delivery. For this challenge, `at-least-once` plus idempotency is a more realistic and defendable choice.
+I intentionally did not implement this as microservices.
 
-## Scope
+For the scope of the challenge, a modular monolith is the right choice because it:
 
-### In Scope
+- keeps the implementation focused on core backend behavior
+- avoids spending challenge time on deployment topology instead of correctness
+- still demonstrates clear boundaries between API, delivery, queueing, persistence, and providers
+- preserves an easy path to horizontal scaling at the worker layer
 
-- `email` and `sms` channels
-- asynchronous delivery
-- persistent notification state
-- user preferences per channel
-- simple templates
-- retries for transient failures
-- idempotency key support
-- notification status lookup
-- structured logging
-- unit and integration tests
+For this challenge, that balance felt right: simple enough to reason about, but realistic enough to discuss future evolution.
 
-### Out of Scope
+## Core Decisions I Made
 
-- push notifications
-- quiet hours
-- digest or batch notifications
-- multi-region deployment
-- provider failover across channels
-- advanced dead-letter queue workflows
-- distributed tracing
-- sharding
-- complex marketing segmentation
+### 1. PostgreSQL Is The Source Of Truth
 
-## Suggested API
+I did not want the queue to become the system of record.
 
-### `POST /notifications`
+Every notification is first persisted in PostgreSQL and then enqueued for asynchronous processing. Delivery status, attempt history, idempotency behavior, and final outcome all live in the database.
 
-Creates a notification request.
+That decision matters because:
 
-Example request fields:
+- queue state is operationally useful but not authoritative
+- notification history must survive worker restarts or Redis restarts
+- status lookup must be independent of in-memory worker state
+- retries and failure analysis need durable records
 
-- `userId`
-- `channel`
-- `recipient`
-- `subject` optional
-- `body` optional
-- `templateId` optional
-- `templateData` optional
-- `idempotencyKey`
+### 2. Redis And BullMQ Are Delivery Orchestration, Not Business State
 
-Validation rule:
+`BullMQ` is used for:
 
-- at least one of `body` or `templateId` must be provided
+- asynchronous dispatch
+- retry scheduling
+- exponential backoff
+- concurrency control
 
-### `GET /notifications/:id`
+It is intentionally not responsible for durable business truth.
 
-Returns current notification status and delivery information.
+This keeps the design defensible: if Redis is flushed, the database still contains the notification record and its state, even if recovery would require explicit replay tooling in a future version.
 
-Optional future endpoints:
+### 3. At-Least-Once Delivery Is The Right Model Here
 
-- `POST /users/:userId/preferences`
-- `GET /users/:userId/preferences`
-- `POST /notifications/:id/retry`
+I designed the system around:
 
-## Core Flow
+- at-least-once processing
+- idempotent request creation
+- persistent attempt tracking
 
-1. A client sends `POST /notifications`
-2. The API validates the payload
-3. The API checks idempotency
-4. The API stores the notification with status `PENDING`
-5. The API enqueues a BullMQ job
-6. A worker consumes the job
-7. The worker loads the notification
-8. The worker checks user preferences
-9. The worker resolves the template or uses the direct body
-10. The worker selects the proper provider
-11. The worker attempts delivery
-12. The worker records the attempt
-13. The worker updates status to `SENT`, `RETRY_SCHEDULED`, or `FAILED`
+I did not try to implement exactly-once delivery semantics because that would add complexity disproportionate to the challenge and would not be credible without much heavier infrastructure and reconciliation logic.
+
+### 4. Idempotency Applies To Request Creation
+
+`idempotencyKey` prevents duplicate notification creation for the same logical client request.
+
+This means:
+
+- first request creates the notification
+- repeated requests with the same key return the existing notification
+- repeated requests do not create a new row
+- repeated requests do not implicitly re-enqueue processing
+
+I consider that strict idempotency, and for this challenge I believe it is the correct default behavior for request deduplication.
+
+### 5. Retry Policy Is Based On Error Classification
+
+Errors are separated into:
+
+- transient errors: retried with backoff
+- permanent errors: failed immediately
+
+This was an important design choice because retrying everything creates noisy, expensive, and incorrect behavior.
+
+Examples of permanent failures in this prototype:
+
+- user opted out
+- missing template data
+- invalid template resolution
+
+### 6. Providers Are Behind Narrow Interfaces
+
+I wanted the delivery flow to depend on a provider abstraction, not on channel-specific logic scattered through the worker.
+
+That keeps channel handling isolated and makes the design extensible without forcing premature generalization.
+
+## Scope Of The Providers
+
+I kept the provider layer intentionally narrow in this challenge.
+
+Implemented providers:
+
+- `EmailProvider`
+- `SmsProvider`
+
+Current provider behavior:
+
+- fake delivery implementations
+- deterministic enough for tests and demos
+- return external references for successful sends
+- integrate with retry and error handling flow
+
+### Why The Providers Are Fake
+
+I explicitly kept real third-party integrations out of scope.
+
+That was the right decision for the challenge because the evaluation value is in the system design and core flow, not in wiring vendor SDKs.
+
+Using fake providers allowed me to spend effort on:
+
+- notification state transitions
+- retry behavior
+- idempotency
+- persistence design
+- tests
+- architecture clarity
+
+instead of spending it on:
+
+- provider credentials
+- SDK quirks
+- network sandbox issues
+- low-value integration boilerplate
+
+### What Is Intentionally Missing From Provider Scope
+
+- real vendor APIs
+- channel failover between providers
+- provider-specific rate limiting
+- provider health scoring
+- provider routing policies
+- webhook ingestion for downstream delivery receipts
+
+Those are valid next steps in a production system, but not necessary for a strong challenge prototype.
 
 ## Data Model
 
+I kept the database schema intentionally small and focused.
+
 ### `notifications`
 
-- `id`
-- `user_id`
-- `channel`
-- `status`
-- `recipient`
-- `subject`
-- `body`
-- `template_id` nullable
-- `template_data` jsonb
-- `idempotency_key`
-- `external_ref` nullable
-- `scheduled_at` nullable
-- `last_error` nullable
-- `created_at`
-- `updated_at`
+Stores the durable business record:
+
+- identity
+- channel
+- recipient
+- content or template reference
+- idempotency key
+- delivery status
+- external reference
+- last error
+- timestamps
 
 ### `notification_attempts`
 
-- `id`
-- `notification_id`
-- `attempt_number`
-- `provider`
-- `status`
-- `error_code` nullable
-- `error_message` nullable
-- `created_at`
+Stores delivery execution history:
+
+- notification reference
+- attempt number
+- provider
+- attempt status
+- error code and message
+- timestamp
+
+This table is important because it separates current state from historical execution detail.
 
 ### `user_preferences`
 
-- `user_id`
-- `channel`
-- `enabled`
-- `created_at`
-- `updated_at`
+Stores whether a user has a given channel enabled.
+
+This allows the worker to reject notifications as permanent failures before hitting the provider when the channel is disabled.
 
 ### `templates`
 
-- `id`
-- `name`
-- `channel`
-- `subject_template` nullable
-- `body_template`
-- `version`
-- `created_at`
+Stores template definitions and versions.
 
-## Notification States
+The current implementation supports basic variable interpolation, which is enough to exercise template resolution and failure handling without introducing a full templating subsystem.
+
+## Notification Lifecycle
+
+The state model I implemented is:
 
 - `PENDING`
 - `PROCESSING`
 - `SENT`
 - `RETRY_SCHEDULED`
 - `FAILED`
-- `CANCELLED` optional
 
-## Error Handling and Retries
+The main flow is:
 
-Errors should be classified into two broad categories:
+1. client sends `POST /notifications`
+2. API validates payload
+3. API checks idempotency
+4. API persists notification with `PENDING`
+5. API enqueues `notification.deliver`
+6. worker consumes the job
+7. worker marks notification as `PROCESSING`
+8. worker checks preferences and resolves content
+9. worker calls provider
+10. worker records the attempt
+11. worker ends in `SENT`, `RETRY_SCHEDULED`, or `FAILED`
 
-1. transient errors
-   - network timeout
-   - temporary provider outage
-   - connection failure
-   - should be retried
+I kept this flow explicit because it makes runtime behavior easier to reason about and easier to test.
 
-2. permanent errors
-   - invalid recipient
-   - missing template
-   - user opted out
-   - should not be retried
+## API Surface
 
-Retry policy recommendation:
+The endpoints I implemented are:
 
-- maximum `3` to `5` attempts
-- exponential backoff
-- optional jitter if time allows
+- `POST /notifications`
+- `GET /notifications/:id`
+- `GET /health`
 
-## BullMQ Design
+`POST /notifications` supports:
 
-Start with a single queue:
+- direct body notifications
+- template-driven notifications
+- idempotency keys
 
-- `notifications`
-
-Job payload:
-
-- `notificationId`
-- `attempt`
-
-Important design rule:
-
-- BullMQ manages delivery scheduling and retries, but PostgreSQL remains the system of record
-
-## Project Structure
-
-```text
-notification-system/
-  src/
-    app/
-      server.ts
-      worker.ts
-    config/
-      env.ts
-    modules/
-      notifications/
-        notification.controller.ts
-        notification.service.ts
-        notification.repository.ts
-        notification.schemas.ts
-        notification.types.ts
-      preferences/
-        preference.service.ts
-        preference.repository.ts
-      templates/
-        template.service.ts
-        template.repository.ts
-      delivery/
-        delivery.service.ts
-        delivery.repository.ts
-        retry.policy.ts
-      queue/
-        queue.ts
-        queue.jobs.ts
-        queue.worker.ts
-      providers/
-        provider.interface.ts
-        email.provider.ts
-        sms.provider.ts
-    db/
-      schema/
-      client.ts
-      migrations/
-    shared/
-      errors/
-      logger/
-      utils/
-  test/
-    unit/
-    integration/
-  docker-compose.yml
-  DESIGN.md
-  package.json
-  tsconfig.json
-  drizzle.config.ts
-```
+`GET /notifications/:id` exposes the persisted notification state so the asynchronous lifecycle can be observed externally.
 
 ## Testing Strategy
 
-Testing is a core requirement of the challenge, so this project should place strong emphasis on correctness and reliability.
+I treated testing as part of the architecture, not as cleanup work at the end.
 
-### Unit Tests
+The project includes:
+
+- unit tests for focused domain behavior
+- integration tests for API and module interactions
+- optional end-to-end tests against PostgreSQL and Redis
+
+### What The Tests Emphasize
 
 - payload validation
-- retry policy
-- error classification
-- idempotency handling
+- idempotency behavior
+- retry classification
+- preference handling
 - template rendering
-- preference checks
+- worker processing flow
+- final notification state transitions
 
-### Integration Tests
+The end-to-end suite is intentionally opt-in so the default developer loop remains fast.
 
-- create notification successfully
-- persist notification correctly
-- enqueue BullMQ job
-- process notification with worker
-- retry on transient error
-- fail immediately on permanent error
-- retrieve notification status
-
-### Optional End-to-End Test
-
-If time allows:
-
-- run API, PostgreSQL, and Redis together in containers
-- verify the end-to-end notification lifecycle
+This was a practical choice: keep the standard test run cheap and stable, while still proving the full lifecycle when needed.
 
 ## Observability
 
-Minimum recommended observability:
+I added structured logging with notification-oriented context.
 
-- structured logs
-- include `notificationId` in all relevant logs
-- log delivery attempts and final outcomes
+Notably:
 
-Optional if time allows:
+- the worker logs include `notificationId`
+- delivery processing emits visible lifecycle events
+- failures persist both state and attempt details
 
-- counters for created, sent, failed, retried notifications
-- basic health endpoints
+I intentionally implemented enough observability to debug the asynchronous flow without trying to build a full telemetry platform.
 
-## Trade-Offs
+## How I Planned The Implementation
 
-### Why Fastify
+One of my core goals in this challenge was to avoid building features in an ad hoc order.
 
-- lightweight
-- good TypeScript support
-- simple and explicit
-
-### Why Drizzle
-
-- lower magic than Prisma
-- explicit SQL-oriented modeling
-- easier to explain in an interview setting
-
-### Why BullMQ + Redis
-
-- natural fit for TypeScript projects
-- supports delayed retries and worker concurrency cleanly
-- avoids implementing a custom queue for the challenge
-
-### Why Not Microservices
-
-- too much operational complexity for the challenge
-- more moving parts without clear evaluation benefit
-- harder to keep implementation focused and well tested
-
-## Scalability Story
-
-This design is scalable without becoming overly complex because:
-
-- the API is decoupled from notification delivery
-- Redis absorbs traffic spikes through the queue
-- workers can scale horizontally
-- PostgreSQL preserves strong delivery state tracking
-- providers are abstracted behind interfaces, making new channels easier to add
-
-This is enough to discuss future growth while keeping the prototype realistic.
-
-## Implementation Plan
+I approached the implementation as a phased plan where each phase established a stable layer for the next one.
 
 ### Phase 1: Project Bootstrap
 
-- initialize the TypeScript project
-- configure package manager, scripts, and TypeScript
-- add Fastify, Drizzle, BullMQ, Redis client, and Vitest
-- set up linting and formatting if desired
+Goal:
+Create a clean TypeScript project foundation with scripts, dependencies, and test tooling.
+
+Why first:
+Without a stable project skeleton, every later phase becomes noisier and harder to verify.
 
 ### Phase 2: Local Infrastructure
 
-- add `docker-compose.yml`
-- configure PostgreSQL and Redis services
-- define environment variables
-- create configuration loader
+Goal:
+Add PostgreSQL, Redis, environment loading, and process bootstrap.
+
+Why first:
+This system is infrastructure-dependent by design. Validating connectivity early removes ambiguity later.
 
 ### Phase 3: Database Foundation
 
-- define Drizzle schema
-- create migrations
-- add database client setup
+Goal:
+Define Drizzle schema and migrations.
+
+Why first:
+The database is the system of record, so the data model needed to exist before queueing and delivery behavior.
 
 ### Phase 4: Core Notification API
 
-- implement `POST /notifications`
-- validate payloads
-- implement idempotency checks
-- persist notifications with `PENDING` status
+Goal:
+Implement `POST /notifications`, validation, persistence, and idempotency.
+
+Why first:
+Request acceptance is the front door of the system. It had to be correct before async processing mattered.
 
 ### Phase 5: Queue Integration
 
-- configure BullMQ
-- create the `notifications` queue
-- enqueue notification jobs after persistence
+Goal:
+Publish notification jobs after persistence.
+
+Why here:
+Queueing only becomes meaningful once creation semantics and storage are correct.
 
 ### Phase 6: Worker Processing
 
-- implement worker bootstrap
-- load notifications from PostgreSQL
-- resolve message content
-- call the correct provider
-- update notification state
+Goal:
+Consume jobs, load notifications, call providers, and update status.
+
+Why here:
+This is the first end-to-end version of the system. It converts stored requests into actual asynchronous execution.
 
 ### Phase 7: Delivery Reliability
 
-- implement retry classification
-- add exponential backoff
-- persist attempt history
-- handle permanent failures explicitly
+Goal:
+Add retry policy, error classification, and attempt persistence.
 
-### Phase 8: Read API and Preferences
+Why here:
+Reliability belongs after the core happy path exists. Otherwise retry logic gets added before there is a clean baseline flow to protect.
 
-- implement `GET /notifications/:id`
-- implement user preference checks
-- optionally add preference endpoints
+### Phase 8: Read API And Preferences
 
-### Phase 9: Templates and Logging
+Goal:
+Expose notification lookup and enforce opt-out behavior.
 
-- add basic template support
-- add structured logging
-- include correlation fields like `notificationId`
+Why here:
+Once the system could create and process notifications, it was important to make state externally inspectable and behaviorally correct for user preferences.
 
-### Phase 10: Tests and Documentation
+### Phase 9: Templates And Logging
 
-- add unit tests for core logic
-- add integration tests for API and worker flows
-- write `DESIGN.md`
-- document trade-offs and future improvements
+Goal:
+Add template rendering and improve worker observability.
 
-## Key Risks
+Why here:
+Templates are product complexity, not transport complexity. They were intentionally added after the transport pipeline was stable.
 
-- adding too many product features too early
-- overcomplicating template management
-- treating BullMQ as the source of truth instead of PostgreSQL
-- failing to distinguish transient and permanent errors cleanly
-- underinvesting in integration tests
+### Phase 10: Tests And Documentation
 
-## Final Recommendation
+Goal:
+Strengthen confidence with tests and document the design explicitly.
 
-Use this combination:
+Why last:
+By this stage the system shape was clear enough to document honestly, based on what was actually built rather than on aspiration.
 
-- `Fastify`
-- `TypeScript`
-- `PostgreSQL`
-- `Redis + BullMQ`
-- `Drizzle ORM`
-- `Vitest`
-- `email` and `sms` channels
-- fake providers for delivery simulation
-- strong focus on idempotency, retries, states, and tests
+## Why The Phased Plan Matters
 
-This provides a scalable, interview-ready implementation without unnecessary overengineering.
+This phased approach was not just project management polish. It directly influenced the quality of the implementation.
+
+It helped avoid three common failure modes:
+
+- adding features before the underlying state model was stable
+- mixing infrastructure concerns with domain concerns too early
+- writing documentation for an imagined system instead of a real one
+
+The result is a prototype that can be read in the same order I designed it: foundation first, reliability second, features third.
+
+## Trade-Offs I Accepted
+
+### Why Fastify
+
+- lightweight and explicit
+- strong TypeScript ergonomics
+- simple enough for a challenge without sacrificing structure
+
+### Why Drizzle
+
+- SQL-oriented and easy to reason about
+- lower abstraction overhead than heavier ORM approaches
+- good fit for a reviewer who wants to see the data model clearly
+
+### Why BullMQ
+
+- natural Redis-backed queue for the TypeScript ecosystem
+- clean delayed retry support
+- straightforward worker model
+- enough power for the challenge without custom queue infrastructure
+
+### Why Not More Features
+
+I intentionally left out features that would increase surface area without improving the signal of the submission.
+
+Examples:
+
+- real provider SDKs
+- multiple API resources for preference management
+- dead-letter tooling
+- metrics dashboards
+- distributed tracing
+- multi-region concerns
+
+That was not a shortcut. It was a scope decision to keep the implementation centered on correctness and architecture.
+
+## AI Usage
+
+The challenge explicitly allows AI usage, so I used it as an implementation accelerator, not as a substitute for design ownership.
+
+The important boundary was this:
+
+- architecture, scope, trade-offs, and sequencing were intentional decisions
+- generated code was kept small enough to understand and review
+- undocumented complexity was avoided
+- the final structure, tests, and explanations reflect deliberate choices rather than copied output
+
+In practice, that meant using AI to move faster on implementation details while keeping the design decisions and code understanding fully owned.
+
+## What I Would Build Next
+
+If this were extended beyond the challenge, the next improvements would be:
+
+- replay tooling for orphaned `PENDING` notifications
+- explicit manual retry endpoint
+- provider abstraction for real vendor integrations
+- metrics and dashboards
+- dead-letter and recovery workflows
+- outbox-style guarantees for stronger DB-to-queue consistency
+
+Those are the next logical steps after the current prototype, not prerequisites for it.
+
+## How I Position This Solution
+
+I intentionally position this solution between a toy demo and a production system.
+
+It is more serious than a CRUD exercise because it includes:
+
+- async processing
+- retries
+- persistent state transitions
+- provider boundaries
+- idempotency
+- templates
+- preferences
+- tests
+
+It is also intentionally smaller than a production platform because I avoided infrastructure and feature complexity that would weaken the clarity of the challenge submission.
+
+That balance is the main design statement I wanted this repository to make.

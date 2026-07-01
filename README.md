@@ -72,12 +72,6 @@ The default values are already aligned with `docker-compose.yml`, so no changes 
 docker compose up -d
 ```
 
-If you are using `Bazzite` with `Distrobox`, use:
-
-```bash
-./scripts/compose.sh up -d
-```
-
 This starts:
 
 - `PostgreSQL` on `localhost:5432`
@@ -89,34 +83,16 @@ To inspect container state:
 docker compose ps
 ```
 
-On `Bazzite` + `Distrobox`:
-
-```bash
-./scripts/compose.sh ps
-```
-
 To stop the services:
 
 ```bash
 docker compose down
 ```
 
-On `Bazzite` + `Distrobox`:
-
-```bash
-./scripts/compose.sh down
-```
-
 To stop the services and remove persisted volumes:
 
 ```bash
 docker compose down -v
-```
-
-On `Bazzite` + `Distrobox`:
-
-```bash
-./scripts/compose.sh down -v
 ```
 
 ### 4. Run the API
@@ -324,32 +300,7 @@ npm run test:e2e
 
 If `docker compose up -d` fails with a socket permission error, your user likely does not have access to Docker on the machine. Resolve Docker access first, then retry.
 
-### Bazzite and Distrobox
-
-If you are running the project inside `Distrobox` on `Bazzite`, the Docker CLI may point to `/var/run/docker.sock`, while the working container runtime is actually the rootless Podman socket exposed by the host.
-
-This repository includes `./scripts/compose.sh`, which automatically uses:
-
-```bash
-unix:///run/user/$(id -u)/podman/podman.sock
-```
-
-when that socket is available.
-
-Use:
-
-```bash
-./scripts/compose.sh up -d
-./scripts/compose.sh ps
-./scripts/compose.sh down
-```
-
-You can also export the socket manually for the current shell:
-
-```bash
-export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
-docker compose up -d
-```
+If your environment requires a non-default Docker socket, set `DOCKER_HOST` accordingly before running `docker compose`.
 
 ### Port conflicts
 

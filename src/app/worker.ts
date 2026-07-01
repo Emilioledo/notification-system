@@ -10,6 +10,8 @@ import { EmailProvider } from "../modules/providers/email.provider.js";
 import { SmsProvider } from "../modules/providers/sms.provider.js";
 import { createQueue } from "../modules/queue/queue.js";
 import { createQueueWorker } from "../modules/queue/queue.worker.js";
+import { TemplateRepository } from "../modules/templates/template.repository.js";
+import { TemplateService } from "../modules/templates/template.service.js";
 import { logger } from "../shared/logger.js";
 
 export async function startWorker() {
@@ -18,10 +20,13 @@ export async function startWorker() {
   const notificationRepository = new NotificationRepository(db);
   const deliveryRepository = new DeliveryRepository(db);
   const preferenceRepository = new PreferenceRepository(db);
+  const templateRepository = new TemplateRepository(db);
+  const templateService = new TemplateService(templateRepository);
   const deliveryServiceWithAttempts = new DeliveryService(
     notificationRepository,
     deliveryRepository,
     preferenceRepository,
+    templateService,
     {
       email: new EmailProvider(),
       sms: new SmsProvider(),

@@ -4,6 +4,14 @@ import { DeliveryError } from "../../../../src/modules/delivery/delivery.errors.
 import { DeliveryService } from "../../../../src/modules/delivery/delivery.service.js";
 import type { NotificationRecord } from "../../../../src/modules/notifications/notification.types.js";
 
+vi.mock("../../../../src/shared/logger.js", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
 const baseNotification: NotificationRecord = {
   id: "550e8400-e29b-41d4-a716-446655440010",
   userId: "550e8400-e29b-41d4-a716-446655440000",
@@ -28,6 +36,7 @@ describe("DeliveryService", () => {
   const createAttempt = vi.fn();
   const getNextAttemptNumber = vi.fn();
   const isChannelEnabled = vi.fn();
+  const resolveTemplate = vi.fn();
   const sendEmail = vi.fn();
   const sendSms = vi.fn();
 
@@ -59,10 +68,18 @@ describe("DeliveryService", () => {
         isChannelEnabled,
       },
       {
+        resolve: resolveTemplate,
+      },
+      {
         email: { name: "email", send: sendEmail },
         sms: { name: "sms", send: sendSms },
       },
     );
+
+    resolveTemplate.mockResolvedValueOnce({
+      subject: "Welcome",
+      body: "Hello from the notification system",
+    });
 
     await service.processNotification(baseNotification.id);
 
@@ -117,10 +134,18 @@ describe("DeliveryService", () => {
         isChannelEnabled,
       },
       {
+        resolve: resolveTemplate,
+      },
+      {
         email: { name: "email", send: sendEmail },
         sms: { name: "sms", send: sendSms },
       },
     );
+
+    resolveTemplate.mockResolvedValueOnce({
+      subject: "Welcome",
+      body: "Hello from the notification system",
+    });
 
     await expect(service.processNotification(baseNotification.id)).rejects.toThrow(
       "provider unavailable",
@@ -169,13 +194,24 @@ describe("DeliveryService", () => {
         isChannelEnabled,
       },
       {
+        resolve: resolveTemplate,
+      },
+      {
         email: { name: "email", send: sendEmail },
         sms: { name: "sms", send: sendSms },
       },
     );
 
+    resolveTemplate.mockRejectedValueOnce(
+      new DeliveryError(
+        "Template not found for notification",
+        "permanent",
+        "MISSING_TEMPLATE",
+      ),
+    );
+
     await expect(service.processNotification(baseNotification.id)).rejects.toThrow(
-      "Template resolution is not implemented yet",
+      "Template not found for notification",
     );
     expect(sendEmail).not.toHaveBeenCalled();
     expect(createAttempt).toHaveBeenCalledWith({
@@ -183,15 +219,15 @@ describe("DeliveryService", () => {
       attemptNumber: 1,
       provider: "email",
       status: "FAILED",
-      errorCode: "MISSING_TEMPLATE_RESOLUTION",
-      errorMessage: "Template resolution is not implemented yet",
+      errorCode: "MISSING_TEMPLATE",
+      errorMessage: "Template not found for notification",
     });
     expect(updateStatus).toHaveBeenNthCalledWith(
       2,
       baseNotification.id,
       "FAILED",
       {
-        lastError: "Template resolution is not implemented yet",
+        lastError: "Template not found for notification",
       },
     );
   });
@@ -205,6 +241,13 @@ describe("DeliveryService", () => {
     updateStatus.mockResolvedValue(baseNotification);
     getNextAttemptNumber.mockResolvedValueOnce(2);
     isChannelEnabled.mockResolvedValueOnce(true);
+    resolveTemplate.mockRejectedValueOnce(
+      new DeliveryError(
+        "Notification has no body or template configured",
+        "permanent",
+        "MISSING_CONTENT",
+      ),
+    );
 
     const service = new DeliveryService(
       {
@@ -219,6 +262,9 @@ describe("DeliveryService", () => {
       },
       {
         isChannelEnabled,
+      },
+      {
+        resolve: resolveTemplate,
       },
       {
         email: { name: "email", send: sendEmail },
@@ -259,6 +305,9 @@ describe("DeliveryService", () => {
       },
       {
         isChannelEnabled,
+      },
+      {
+        resolve: resolveTemplate,
       },
       {
         email: { name: "email", send: sendEmail },

@@ -50,7 +50,9 @@ export function registerNotificationRoutes(
       });
     }
 
-    const notification = await options.notificationService.getNotification(params.id);
+    const notification = await options.notificationService.getNotification(
+      params.id,
+    );
 
     if (!notification) {
       return reply.code(404).send({

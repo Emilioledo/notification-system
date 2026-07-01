@@ -4,37 +4,20 @@ import type { NotificationRepositoryPort } from "../notifications/notification.r
 import type { NotificationRecord } from "../notifications/notification.types.js";
 import type { PreferenceRepositoryPort } from "../preferences/preference.repository.js";
 import type { ChannelProvider } from "../providers/provider.interface.js";
+import { logger } from "../../shared/logger.js";
+import type { TemplateServicePort } from "../templates/template.service.js";
 
 type ProviderRegistry = {
   email: ChannelProvider;
   sms: ChannelProvider;
 };
 
-function resolveBody(notification: NotificationRecord) {
-  if (notification.body) {
-    return notification.body;
-  }
-
-  if (notification.templateId) {
-    throw new DeliveryError(
-      "Template resolution is not implemented yet",
-      "permanent",
-      "MISSING_TEMPLATE_RESOLUTION",
-    );
-  }
-
-  throw new DeliveryError(
-    "Notification has no body or template configured",
-    "permanent",
-    "MISSING_CONTENT",
-  );
-}
-
 export class DeliveryService {
   constructor(
     private readonly notificationRepository: NotificationRepositoryPort,
     private readonly deliveryRepository: DeliveryRepositoryPort,
     private readonly preferenceRepository: PreferenceRepositoryPort,
+    private readonly templateService: TemplateServicePort,
     private readonly providerRegistry: ProviderRegistry,
   ) {}
 
@@ -45,6 +28,8 @@ export class DeliveryService {
     if (!notification) {
       throw new Error(`Notification ${notificationId} was not found`);
     }
+
+    logger.info({ notificationId: notification.id }, "Loaded notification for delivery");
 
     await this.notificationRepository.updateStatus(
       notification.id,
@@ -83,16 +68,21 @@ export class DeliveryService {
         lastError: error.message,
       });
 
+      logger.warn(
+        { notificationId: notification.id, channel: notification.channel },
+        "Skipping delivery because the user disabled the channel",
+      );
+
       throw error;
     }
 
     try {
-      const body = resolveBody(notification);
+      const content = await this.templateService.resolve(notification);
       const result = await provider.send({
         notificationId: notification.id,
         recipient: notification.recipient,
-        subject: notification.subject,
-        body,
+        subject: content.subject,
+        body: content.body,
       });
 
       await this.deliveryRepository.createAttempt({
@@ -106,6 +96,15 @@ export class DeliveryService {
         externalRef: result.externalRef,
         lastError: null,
       });
+
+      logger.info(
+        {
+          notificationId: notification.id,
+          provider: provider.name,
+          externalRef: result.externalRef,
+        },
+        "Notification delivered successfully",
+      );
     } catch (error) {
       const lastError =
         error instanceof Error ? error.message : "Unknown delivery error";
@@ -125,6 +124,16 @@ export class DeliveryService {
         {
           lastError,
         },
+      );
+
+      logger.error(
+        {
+          notificationId: notification.id,
+          provider: provider.name,
+          error: lastError,
+          permanent: isPermanentDeliveryError(error),
+        },
+        "Notification delivery failed",
       );
 
       throw error;

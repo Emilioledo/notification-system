@@ -22,8 +22,10 @@ const baseNotification: NotificationRecord = {
 };
 
 describe("NotificationService", () => {
+  const findById = vi.fn();
   const findByIdempotencyKey = vi.fn();
   const create = vi.fn();
+  const updateStatus = vi.fn();
   const enqueueNotification = vi.fn();
 
   beforeEach(() => {
@@ -36,8 +38,10 @@ describe("NotificationService", () => {
     enqueueNotification.mockResolvedValueOnce(undefined);
 
     const service = new NotificationService({
+      findById,
       findByIdempotencyKey,
       create,
+      updateStatus,
     }, {
       enqueueNotification,
     });
@@ -70,8 +74,10 @@ describe("NotificationService", () => {
     findByIdempotencyKey.mockResolvedValueOnce(baseNotification);
 
     const service = new NotificationService({
+      findById,
       findByIdempotencyKey,
       create,
+      updateStatus,
     }, {
       enqueueNotification,
     });
@@ -99,8 +105,10 @@ describe("NotificationService", () => {
     create.mockRejectedValueOnce({ code: "23505" });
 
     const service = new NotificationService({
+      findById,
       findByIdempotencyKey,
       create,
+      updateStatus,
     }, {
       enqueueNotification,
     });

@@ -3,6 +3,7 @@ import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
 import type { notifications } from "../../db/schema/index.js";
 
 export type NotificationRecord = InferSelectModel<typeof notifications>;
+export type NotificationStatus = NotificationRecord["status"];
 
 export type CreateNotificationRecord = InferInsertModel<typeof notifications>;
 

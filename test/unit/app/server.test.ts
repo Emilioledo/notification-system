@@ -14,6 +14,7 @@ const endMock = vi.fn();
 const pingMock = vi.fn();
 const quitMock = vi.fn();
 const queueCloseMock = vi.fn();
+const enqueueNotificationMock = vi.fn();
 
 vi.mock("../../../src/app/build-server.js", () => ({
   buildServer: vi.fn(() => serverMock),
@@ -31,6 +32,7 @@ vi.mock("../../../src/db/client.js", () => ({
       connect: connectMock,
       end: endMock,
     },
+    db: {},
   })),
 }));
 
@@ -43,6 +45,9 @@ vi.mock("../../../src/modules/queue/queue.js", () => ({
     queue: {
       close: queueCloseMock,
     },
+  })),
+  createNotificationQueuePublisherFromQueue: vi.fn(() => ({
+    enqueueNotification: enqueueNotificationMock,
   })),
 }));
 

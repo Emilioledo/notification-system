@@ -1,4 +1,8 @@
 import type { DatabaseClient } from "../../db/client.js";
+import {
+  BullMqNotificationQueue,
+  type NotificationQueuePort,
+} from "../queue/queue.js";
 
 import {
   NotificationRepository,
@@ -19,7 +23,10 @@ function isIdempotencyConflict(error: unknown) {
 }
 
 export class NotificationService {
-  constructor(private readonly repository: NotificationRepositoryPort) {}
+  constructor(
+    private readonly repository: NotificationRepositoryPort,
+    private readonly notificationQueue: NotificationQueuePort,
+  ) {}
 
   async createNotification(
     input: CreateNotificationInput,
@@ -48,6 +55,11 @@ export class NotificationService {
         idempotencyKey: input.idempotencyKey,
       });
 
+      await this.notificationQueue.enqueueNotification({
+        notificationId: notification.id,
+        attempt: 1,
+      });
+
       return {
         created: true,
         notification,
@@ -73,6 +85,9 @@ export class NotificationService {
   }
 }
 
-export function createNotificationService(db: DatabaseClient) {
-  return new NotificationService(new NotificationRepository(db));
+export function createNotificationService(
+  db: DatabaseClient,
+  notificationQueue: BullMqNotificationQueue,
+) {
+  return new NotificationService(new NotificationRepository(db), notificationQueue);
 }

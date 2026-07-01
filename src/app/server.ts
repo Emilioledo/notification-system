@@ -4,13 +4,17 @@ import { buildServer } from "./build-server.js";
 import { env } from "../config/env.js";
 import { createDbClient } from "../db/client.js";
 import { createNotificationService } from "../modules/notifications/notification.service.js";
-import { createQueue } from "../modules/queue/queue.js";
+import {
+  createNotificationQueuePublisherFromQueue,
+  createQueue,
+} from "../modules/queue/queue.js";
 
 export async function startServer() {
   const { client, db } = createDbClient();
-  const notificationService = createNotificationService(db);
-  const server = buildServer({ notificationService });
   const { queue, connection } = createQueue();
+  const notificationQueue = createNotificationQueuePublisherFromQueue(queue);
+  const notificationService = createNotificationService(db, notificationQueue);
+  const server = buildServer({ notificationService });
 
   try {
     await client.connect();

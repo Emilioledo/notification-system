@@ -24,6 +24,7 @@ const baseNotification: NotificationRecord = {
 describe("NotificationService", () => {
   const findByIdempotencyKey = vi.fn();
   const create = vi.fn();
+  const enqueueNotification = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -32,10 +33,13 @@ describe("NotificationService", () => {
   it("creates a pending notification when the idempotency key is new", async () => {
     findByIdempotencyKey.mockResolvedValueOnce(null);
     create.mockResolvedValueOnce(baseNotification);
+    enqueueNotification.mockResolvedValueOnce(undefined);
 
     const service = new NotificationService({
       findByIdempotencyKey,
       create,
+    }, {
+      enqueueNotification,
     });
 
     const result = await service.createNotification({
@@ -56,6 +60,10 @@ describe("NotificationService", () => {
         idempotencyKey: "notification-001",
       }),
     );
+    expect(enqueueNotification).toHaveBeenCalledWith({
+      notificationId: "550e8400-e29b-41d4-a716-446655440010",
+      attempt: 1,
+    });
   });
 
   it("returns the existing notification for an idempotent replay", async () => {
@@ -64,6 +72,8 @@ describe("NotificationService", () => {
     const service = new NotificationService({
       findByIdempotencyKey,
       create,
+    }, {
+      enqueueNotification,
     });
 
     const result = await service.createNotification({
@@ -79,6 +89,7 @@ describe("NotificationService", () => {
       notification: baseNotification,
     });
     expect(create).not.toHaveBeenCalled();
+    expect(enqueueNotification).not.toHaveBeenCalled();
   });
 
   it("recovers from a unique constraint race by loading the existing row", async () => {
@@ -90,6 +101,8 @@ describe("NotificationService", () => {
     const service = new NotificationService({
       findByIdempotencyKey,
       create,
+    }, {
+      enqueueNotification,
     });
 
     const result = await service.createNotification({
@@ -104,5 +117,6 @@ describe("NotificationService", () => {
       created: false,
       notification: baseNotification,
     });
+    expect(enqueueNotification).not.toHaveBeenCalled();
   });
 });

@@ -78,6 +78,56 @@ describe("POST /notifications", () => {
     });
   });
 
+  it("persists the expected request fields passed into the service", async () => {
+    createNotification.mockResolvedValueOnce({
+      created: true,
+      notification: {
+        id: "550e8400-e29b-41d4-a716-446655440011",
+        userId: "550e8400-e29b-41d4-a716-446655440000",
+        channel: "sms",
+        status: "PENDING",
+        recipient: "+5491100000000",
+        subject: null,
+        body: null,
+        templateId: "550e8400-e29b-41d4-a716-446655440001",
+        templateData: { firstName: "Emilio" },
+        idempotencyKey: "notification-002",
+        externalRef: null,
+        scheduledAt: null,
+        lastError: null,
+        createdAt: "2026-07-01T12:00:00.000Z",
+        updatedAt: "2026-07-01T12:00:00.000Z",
+      },
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/notifications",
+      payload: {
+        userId: "550e8400-e29b-41d4-a716-446655440000",
+        channel: "sms",
+        recipient: "+5491100000000",
+        templateId: "550e8400-e29b-41d4-a716-446655440001",
+        templateData: {
+          firstName: "Emilio",
+        },
+        idempotencyKey: "notification-002",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(createNotification).toHaveBeenCalledWith({
+      userId: "550e8400-e29b-41d4-a716-446655440000",
+      channel: "sms",
+      recipient: "+5491100000000",
+      templateId: "550e8400-e29b-41d4-a716-446655440001",
+      templateData: {
+        firstName: "Emilio",
+      },
+      idempotencyKey: "notification-002",
+    });
+  });
+
   it("returns 200 for idempotent replays", async () => {
     createNotification.mockResolvedValueOnce({
       created: false,

@@ -13,6 +13,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/app/server.js",
     "start:worker": "node dist/app/worker.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const drizzleMock = vi.fn((client) => ({ client }));
-const clientConstructorMock = vi.fn(function MockPgClient(this: { options?: unknown }, options) {
+const clientConstructorMock = vi.fn(function MockPgClient(
+  this: { options?: unknown },
+  options,
+) {
   this.options = options;
 });
 
@@ -15,7 +18,8 @@ vi.mock("pg", () => ({
 
 vi.mock("../../../src/config/env.js", () => ({
   env: {
-    DATABASE_URL: "postgres://postgres:postgres@localhost:5432/notification_system",
+    DATABASE_URL:
+      "postgres://postgres:postgres@localhost:5432/notification_system",
   },
 }));
 
@@ -33,12 +37,22 @@ describe("createDbClient", () => {
       connectionString:
         "postgres://postgres:postgres@localhost:5432/notification_system",
     });
-    expect(drizzleMock).toHaveBeenCalledWith({
+    expect(drizzleMock).toHaveBeenCalledTimes(1);
+
+    const drizzleCallArguments = drizzleMock.mock.calls[0];
+
+    expect(drizzleCallArguments).toBeDefined();
+    expect(drizzleCallArguments?.[0]).toEqual({
       options: {
         connectionString:
           "postgres://postgres:postgres@localhost:5432/notification_system",
       },
     });
+    expect((drizzleCallArguments as unknown[])[1]).toEqual(
+      expect.objectContaining({
+        schema: expect.any(Object),
+      }),
+    );
     expect(dbClient).toEqual({
       client: {
         options: {

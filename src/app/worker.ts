@@ -16,9 +16,9 @@ export async function startWorker() {
     {
       queueName: env.QUEUE_NAME,
       concurrency: env.WORKER_CONCURRENCY,
-      maxRetryAttempts: env.MAX_RETRY_ATTEMPTS
+      maxRetryAttempts: env.MAX_RETRY_ATTEMPTS,
     },
-    "Worker bootstrap completed"
+    "Worker bootstrap completed",
   );
 
   const shutdown = async (signal: NodeJS.Signals) => {
@@ -32,6 +32,9 @@ export async function startWorker() {
   process.once("SIGTERM", shutdown);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   void startWorker();
 }

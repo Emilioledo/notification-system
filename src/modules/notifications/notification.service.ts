@@ -11,6 +11,7 @@ import {
 import type {
   CreateNotificationInput,
   CreateNotificationResult,
+  GetNotificationResult,
 } from "./notification.types.js";
 
 function isIdempotencyConflict(error: unknown) {
@@ -82,6 +83,10 @@ export class NotificationService {
         notification: conflictNotification,
       };
     }
+  }
+
+  async getNotification(id: string): Promise<GetNotificationResult> {
+    return this.repository.findById(id);
   }
 }
 

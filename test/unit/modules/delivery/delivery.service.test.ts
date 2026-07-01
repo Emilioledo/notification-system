@@ -27,6 +27,7 @@ describe("DeliveryService", () => {
   const updateStatus = vi.fn();
   const createAttempt = vi.fn();
   const getNextAttemptNumber = vi.fn();
+  const isChannelEnabled = vi.fn();
   const sendEmail = vi.fn();
   const sendSms = vi.fn();
 
@@ -38,6 +39,7 @@ describe("DeliveryService", () => {
     findById.mockResolvedValueOnce(baseNotification);
     updateStatus.mockResolvedValue(baseNotification);
     getNextAttemptNumber.mockResolvedValueOnce(1);
+    isChannelEnabled.mockResolvedValueOnce(true);
     sendEmail.mockResolvedValueOnce({
       externalRef: "email:550e8400-e29b-41d4-a716-446655440010",
     });
@@ -52,6 +54,9 @@ describe("DeliveryService", () => {
       {
         createAttempt,
         getNextAttemptNumber,
+      },
+      {
+        isChannelEnabled,
       },
       {
         email: { name: "email", send: sendEmail },
@@ -94,6 +99,7 @@ describe("DeliveryService", () => {
     findById.mockResolvedValueOnce(baseNotification);
     updateStatus.mockResolvedValue(baseNotification);
     getNextAttemptNumber.mockResolvedValueOnce(1);
+    isChannelEnabled.mockResolvedValueOnce(true);
     sendEmail.mockRejectedValueOnce(new Error("provider unavailable"));
 
     const service = new DeliveryService(
@@ -106,6 +112,9 @@ describe("DeliveryService", () => {
       {
         createAttempt,
         getNextAttemptNumber,
+      },
+      {
+        isChannelEnabled,
       },
       {
         email: { name: "email", send: sendEmail },
@@ -143,6 +152,7 @@ describe("DeliveryService", () => {
     });
     updateStatus.mockResolvedValue(baseNotification);
     getNextAttemptNumber.mockResolvedValueOnce(1);
+    isChannelEnabled.mockResolvedValueOnce(true);
 
     const service = new DeliveryService(
       {
@@ -154,6 +164,9 @@ describe("DeliveryService", () => {
       {
         createAttempt,
         getNextAttemptNumber,
+      },
+      {
+        isChannelEnabled,
       },
       {
         email: { name: "email", send: sendEmail },
@@ -191,6 +204,7 @@ describe("DeliveryService", () => {
     });
     updateStatus.mockResolvedValue(baseNotification);
     getNextAttemptNumber.mockResolvedValueOnce(2);
+    isChannelEnabled.mockResolvedValueOnce(true);
 
     const service = new DeliveryService(
       {
@@ -202,6 +216,9 @@ describe("DeliveryService", () => {
       {
         createAttempt,
         getNextAttemptNumber,
+      },
+      {
+        isChannelEnabled,
       },
       {
         email: { name: "email", send: sendEmail },
@@ -219,6 +236,55 @@ describe("DeliveryService", () => {
       "FAILED",
       {
         lastError: "Notification has no body or template configured",
+      },
+    );
+  });
+
+  it("fails immediately when the user has opted out of the channel", async () => {
+    findById.mockResolvedValueOnce(baseNotification);
+    updateStatus.mockResolvedValue(baseNotification);
+    getNextAttemptNumber.mockResolvedValueOnce(3);
+    isChannelEnabled.mockResolvedValueOnce(false);
+
+    const service = new DeliveryService(
+      {
+        findById,
+        findByIdempotencyKey: vi.fn(),
+        create: vi.fn(),
+        updateStatus,
+      },
+      {
+        createAttempt,
+        getNextAttemptNumber,
+      },
+      {
+        isChannelEnabled,
+      },
+      {
+        email: { name: "email", send: sendEmail },
+        sms: { name: "sms", send: sendSms },
+      },
+    );
+
+    await expect(service.processNotification(baseNotification.id)).rejects.toThrow(
+      "User has disabled this notification channel",
+    );
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(createAttempt).toHaveBeenCalledWith({
+      notificationId: baseNotification.id,
+      attemptNumber: 3,
+      provider: "email",
+      status: "FAILED",
+      errorCode: "USER_OPTED_OUT",
+      errorMessage: "User has disabled this notification channel",
+    });
+    expect(updateStatus).toHaveBeenNthCalledWith(
+      2,
+      baseNotification.id,
+      "FAILED",
+      {
+        lastError: "User has disabled this notification channel",
       },
     );
   });

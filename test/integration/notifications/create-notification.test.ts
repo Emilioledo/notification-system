@@ -12,9 +12,11 @@ import { buildServer } from "../../../src/app/build-server.js";
 
 describe("POST /notifications", () => {
   const createNotification = vi.fn();
+  const getNotification = vi.fn();
   const server = buildServer({
     notificationService: {
       createNotification,
+      getNotification,
     },
   });
 

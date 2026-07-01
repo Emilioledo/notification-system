@@ -5,6 +5,7 @@ import { createDbClient } from "../db/client.js";
 import { DeliveryRepository } from "../modules/delivery/delivery.repository.js";
 import { DeliveryService } from "../modules/delivery/delivery.service.js";
 import { NotificationRepository } from "../modules/notifications/notification.repository.js";
+import { PreferenceRepository } from "../modules/preferences/preference.repository.js";
 import { EmailProvider } from "../modules/providers/email.provider.js";
 import { SmsProvider } from "../modules/providers/sms.provider.js";
 import { createQueue } from "../modules/queue/queue.js";
@@ -16,9 +17,11 @@ export async function startWorker() {
   const { queue, connection } = createQueue();
   const notificationRepository = new NotificationRepository(db);
   const deliveryRepository = new DeliveryRepository(db);
+  const preferenceRepository = new PreferenceRepository(db);
   const deliveryServiceWithAttempts = new DeliveryService(
     notificationRepository,
     deliveryRepository,
+    preferenceRepository,
     {
       email: new EmailProvider(),
       sms: new SmsProvider(),

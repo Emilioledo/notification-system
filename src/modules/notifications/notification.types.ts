@@ -22,3 +22,5 @@ export type CreateNotificationResult = {
   created: boolean;
   notification: NotificationRecord;
 };
+
+export type GetNotificationResult = NotificationRecord | null;

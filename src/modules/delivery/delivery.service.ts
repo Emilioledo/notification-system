@@ -2,6 +2,7 @@ import type { DeliveryRepositoryPort } from "./delivery.repository.js";
 import { DeliveryError, isPermanentDeliveryError } from "./delivery.errors.js";
 import type { NotificationRepositoryPort } from "../notifications/notification.repository.js";
 import type { NotificationRecord } from "../notifications/notification.types.js";
+import type { PreferenceRepositoryPort } from "../preferences/preference.repository.js";
 import type { ChannelProvider } from "../providers/provider.interface.js";
 
 type ProviderRegistry = {
@@ -33,6 +34,7 @@ export class DeliveryService {
   constructor(
     private readonly notificationRepository: NotificationRepositoryPort,
     private readonly deliveryRepository: DeliveryRepositoryPort,
+    private readonly preferenceRepository: PreferenceRepositoryPort,
     private readonly providerRegistry: ProviderRegistry,
   ) {}
 
@@ -55,6 +57,34 @@ export class DeliveryService {
     const provider = this.providerRegistry[notification.channel];
     const attemptNumber =
       await this.deliveryRepository.getNextAttemptNumber(notification.id);
+
+    const channelEnabled = await this.preferenceRepository.isChannelEnabled(
+      notification.userId,
+      notification.channel,
+    );
+
+    if (!channelEnabled) {
+      const error = new DeliveryError(
+        "User has disabled this notification channel",
+        "permanent",
+        "USER_OPTED_OUT",
+      );
+
+      await this.deliveryRepository.createAttempt({
+        notificationId: notification.id,
+        attemptNumber,
+        provider: provider.name,
+        status: "FAILED",
+        errorCode: error.code ?? null,
+        errorMessage: error.message,
+      });
+
+      await this.notificationRepository.updateStatus(notification.id, "FAILED", {
+        lastError: error.message,
+      });
+
+      throw error;
+    }
 
     try {
       const body = resolveBody(notification);

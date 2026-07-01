@@ -4,12 +4,16 @@ import {
   createNotificationSchema,
   type CreateNotificationRequest,
 } from "./notification.schemas.js";
-import type { CreateNotificationResult } from "./notification.types.js";
+import type {
+  CreateNotificationResult,
+  GetNotificationResult,
+} from "./notification.types.js";
 
 export type NotificationService = {
   createNotification(
     input: CreateNotificationRequest,
   ): Promise<CreateNotificationResult>;
+  getNotification(id: string): Promise<GetNotificationResult>;
 };
 
 type RegisterNotificationRoutesOptions = {
@@ -35,5 +39,25 @@ export function registerNotificationRoutes(
       await options.notificationService.createNotification(payload);
 
     return reply.code(result.created ? 201 : 200).send(result.notification);
+  });
+
+  server.get("/notifications/:id", async (request, reply) => {
+    const params = request.params as { id?: string };
+
+    if (!params.id) {
+      return reply.code(400).send({
+        message: "Notification id is required",
+      });
+    }
+
+    const notification = await options.notificationService.getNotification(params.id);
+
+    if (!notification) {
+      return reply.code(404).send({
+        message: "Notification not found",
+      });
+    }
+
+    return reply.code(200).send(notification);
   });
 }

@@ -36,13 +36,17 @@ const envSchema = z.object({
   RETRY_BACKOFF_MS: z.coerce.number().int().positive().default(1000),
 });
 
-const parsedEnv = envSchema.parse(process.env);
+export function parseEnv(source: NodeJS.ProcessEnv) {
+  const parsedEnv = envSchema.parse(source);
 
-const databaseUrl =
-  parsedEnv.DATABASE_URL ??
-  `postgres://${encodeURIComponent(parsedEnv.POSTGRES_USER)}:${encodeURIComponent(parsedEnv.POSTGRES_PASSWORD)}@${parsedEnv.POSTGRES_HOST}:${parsedEnv.POSTGRES_PORT}/${parsedEnv.POSTGRES_DB}`;
+  const databaseUrl =
+    parsedEnv.DATABASE_URL ??
+    `postgres://${encodeURIComponent(parsedEnv.POSTGRES_USER)}:${encodeURIComponent(parsedEnv.POSTGRES_PASSWORD)}@${parsedEnv.POSTGRES_HOST}:${parsedEnv.POSTGRES_PORT}/${parsedEnv.POSTGRES_DB}`;
 
-export const env = {
-  ...parsedEnv,
-  DATABASE_URL: databaseUrl,
-};
+  return {
+    ...parsedEnv,
+    DATABASE_URL: databaseUrl,
+  };
+}
+
+export const env = parseEnv(process.env);

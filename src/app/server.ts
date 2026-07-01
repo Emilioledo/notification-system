@@ -1,9 +1,11 @@
+import { pathToFileURL } from "node:url";
+
 import { buildServer } from "./build-server.js";
 import { env } from "../config/env.js";
 import { createDbClient } from "../db/client.js";
 import { createQueue } from "../modules/queue/queue.js";
 
-async function start() {
+export async function startServer() {
   const server = buildServer();
   const { client } = createDbClient();
   const { queue, connection } = createQueue();
@@ -26,4 +28,6 @@ async function start() {
   }
 }
 
-void start();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void startServer();
+}
